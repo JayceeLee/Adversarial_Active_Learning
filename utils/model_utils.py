@@ -9,6 +9,7 @@ from models.discriminator import init_net
 from models.discriminator import ScalarGAN, PatchGAN, PixelGAN
 # from models.deeplabv3 import deeplab
 from models.FCN import FCN8s, VGGNet
+from models.deeplab import Res_Deeplab
 
 def load_models(mode, device, args):
     """
@@ -28,6 +29,7 @@ def load_models(mode, device, args):
         # )
         vgg_model = VGGNet(requires_grad=True)
         model = FCN8s(pretrained_net=vgg_model, n_class=args.nclass)
+        # model = Res_Deeplab(num_classes=args.nclass)
         model = init_net(model, device, init_type="kaiming")
         try:
             if args.checkpoint_seg:

@@ -29,7 +29,7 @@ def parse_arguments():
                     default="/home/yirus/Datasets/Active_Learning/everest",
                       help="data directory of Source dataset",)
     parser.add_argument("--target_root", type=str,
-                    default="/home/yirus/Datasets/Active_Learning/SS_Data_Cropped250x400",
+                    default="/home/yirus/Datasets/Active_Learning/trinity",
                       help="data directory of Target dataset",)
 
     parser.add_argument("--nclass",type=int, default=4, help="#classes")
@@ -87,13 +87,15 @@ def main(args):
 
     transforms_source = dual_transforms.Compose(
         [
-            dual_transforms.CenterCrop((args.image_size[0], args.image_size[1])),
+            dual_transforms.CenterCrop((400,400)),
+            dual_transforms.Scale(args.image_size[0]),
         ]
     )
 
     transforms_target = dual_transforms.Compose(
         [
-            dual_transforms.CenterCrop((args.image_size[0], args.image_size[1])),
+            dual_transforms.CenterCrop((400,400)),
+            dual_transforms.Scale(args.image_size[0]),
         ]
     )
 

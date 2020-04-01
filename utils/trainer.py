@@ -17,7 +17,7 @@ file_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append("%s/.." % file_path)
 
 from utils.utils import make_D_label, adjust_learning_rate
-from utils.utils import rescale_image, convt_array_to_PIL
+from utils.utils import rescale_image, convt_array_to_PIL, loss_calc
 from utils.metrics import Performance_Metrics, compute_mean_iou, evaluate_segmentation
 
 INPUT_CHANNELS = 3
@@ -54,8 +54,16 @@ def validate(
     disc_patch.eval()
     disc_pixel.eval()
 
+    interp = torch.nn.Upsample(
+        size=(args.image_size[1], args.image_size[0]),
+        mode='bilinear',
+        align_corners=False,
+    )
+
     loss_f = 0.
     avg_iou = 0.
+
+    random_batch_idx = np.random.randint(0, val_loader.__len__())
     for batch_idx, data in tqdm.tqdm(enumerate(val_loader), total=val_loader.__len__()):
         image, label = data
         image, label = Variable(image).float(), \
@@ -65,18 +73,19 @@ def validate(
 
         with torch.set_grad_enabled(False):
             prediction = model(image)
+            prediction_interp = interp(prediction)
 
-        loss = seg_loss(prediction, label)
+        loss = seg_loss(prediction_interp, label)
         loss_f += loss.item()
 
-        pred_img = prediction.argmax(dim=1, keepdim=True)
+        pred_img = prediction_interp.argmax(dim=1, keepdim=True)
         flat_pred = pred_img.detach().cpu().numpy().flatten()
         flat_gt = label.detach().cpu().numpy().flatten()
         miou, _ = compute_mean_iou(flat_pred=flat_pred, flat_label=flat_gt)
         avg_iou += miou
 
-        if args.tensorboard and (writer != None):
-            filename = os.path.join(args.exp_dir, "iter_{}.png".format(i_iter+batch_idx))
+        if args.tensorboard and (writer != None) and (random_batch_idx == batch_idx):
+            filename = os.path.join(args.exp_dir, "trainiter_{}.png".format(i_iter))
             pred_img = pred_img.float()
             gen_img = vutils.make_grid(pred_img, padding=2, normalize=True)
             writer.add_image('Val/Predictions', gen_img, i_iter+batch_idx)
@@ -123,6 +132,12 @@ def run_testing(
     '''
     model.eval()
 
+    interp = torch.nn.Upsample(
+        size=(args.image_size[1], args.image_size[0]),
+        mode='bilinear',
+        align_corners=False,
+    )
+
     ## Compute Metrics:
     Global_Accuracy=[]; Class_Accuracy=[]; Precision=[]; Recall=[]; F1=[]; IOU=[];IOU_list=[]; iou_all=[]
     pm_orig = Performance_Metrics(
@@ -145,9 +160,10 @@ def run_testing(
 
         with torch.set_grad_enabled(False):
             prediction = model(image)
+            prediction_interp = interp(prediction)
 
         label = label.detach().cpu().numpy()
-        pred = np.argmax(prediction.detach().cpu().numpy(), axis=1)
+        pred = np.argmax(prediction_interp.detach().cpu().numpy(), axis=1)
 
         for idx in np.arange(pred.shape[0]):
             ga, ca, prec, rec, f1, iou, iou_list = evaluate_segmentation(
@@ -199,6 +215,12 @@ def run_training(
     val_miou = []
     val_miou_f = float("-inf")
     loss_seg_min = float("inf")
+
+    interp = torch.nn.Upsample(
+        size=(args.image_size[1], args.image_size[0]),
+        mode='bilinear',
+        align_corners=False,
+    )
 
     for i_iter in range(args.total_iterations):
         loss_seg_source_value = 0
@@ -253,8 +275,10 @@ def run_training(
         labels = Variable(labels.long()).to(args.device)
 
         pred_source = model_seg(images)
+        # pred_source_interp = interp(pred_source)
         pred_source_softmax = F.softmax(pred_source, dim=1)
         loss_seg_source = seg_loss_source(pred_source, labels)
+        # loss_seg_source = loss_calc(pred_source_interp, labels, args.device)
 
         current_loss_seg = loss_seg_source.item()
         loss_seg_source_value += current_loss_seg
@@ -268,6 +292,7 @@ def run_training(
         images = batch
         images = Variable(images).to(args.device)
         pred_target = model_seg(images)
+        # pred_target_interp = interp(pred_target)
         pred_softmax_target = F.softmax(pred_target, dim=1)
 
         ### adversarial loss ###
@@ -499,3 +524,83 @@ def run_training(
         writer.close()
 
     return val_loss, val_miou
+
+def validate_baseline(
+    i_iter,
+    val_loader,
+    model,
+    epoch,
+    args,
+    logger,
+    writer,
+    val_loss,
+    val_iou,
+):
+    '''
+    Pytorch model validation module
+    :param val_loader: pytorch dataloader
+    :param model: segmentation model
+    :param criterion: loss function
+    :param args: input arguments from __main__
+    :param epoch: epoch counter used to display training progress
+    :param val_loss: logs loss prior to invocation of train on batch
+    '''
+    logger.info("================== Validation ==================")
+
+    seg_loss = torch.nn.CrossEntropyLoss().to(args.device)
+    interp = torch.nn.Upsample(
+        size=(args.image_size[1], args.image_size[0]),
+        mode='bilinear',
+        align_corners=False,
+    )
+    model.eval()
+
+    loss_f = 0.
+    avg_iou = 0.
+
+    random_batch_idx = np.random.randint(0, val_loader.__len__())
+    for batch_idx, data in tqdm.tqdm(enumerate(val_loader), total=val_loader.__len__()):
+        image, label = data
+        image, label = Variable(image).float(), \
+                      Variable(label).type(torch.LongTensor)
+
+        image, label = image.to(args.device), label.to(args.device)
+
+        with torch.set_grad_enabled(False):
+            prediction = model(image)
+            prediction_interp = interp(prediction)
+
+        loss = seg_loss(prediction_interp, label)
+        loss_f += loss.item()
+
+        pred_img = prediction_interp.argmax(dim=1, keepdim=True)
+        flat_pred = pred_img.detach().cpu().numpy().flatten()
+        flat_gt = label.detach().cpu().numpy().flatten()
+        miou, _ = compute_mean_iou(flat_pred=flat_pred, flat_label=flat_gt)
+        avg_iou += miou
+
+        if args.tensorboard and (writer != None) and (random_batch_idx == batch_idx):
+            filename = os.path.join(args.exp_dir, "trainiter_{}.png".format(i_iter))
+            pred_img = pred_img.float()
+            gen_img = vutils.make_grid(pred_img, padding=2, normalize=True)
+            writer.add_image('Val/Predictions', gen_img, i_iter+batch_idx)
+            vutils.save_image(gen_img, filename)
+
+    loss_f /= float(val_loader.__len__())
+    avg_iou /= float(val_loader.__len__())
+    logger.info("Epoch #{}\t Val Loss: {:.3f}\t Val mIoU: {:.3f}".format(
+        epoch, loss_f, avg_iou))
+
+    new_val_loss = loss_f
+    new_miou = avg_iou
+
+    if new_val_loss < val_loss:
+        print(val_loss, '--->', new_val_loss)
+        logger.info('saving checkpoint ....')
+        torch.save(model.state_dict(), os.path.join(args.exp_dir, "model_val_best_loss.pth"))
+    if new_miou > val_iou:
+        print(val_iou, '--->', new_miou)
+        logger.info('saving checkpoint ....')
+        torch.save(model.state_dict(), os.path.join(args.exp_dir, "model_val_best_miou.pth"))
+
+    return new_val_loss, new_miou

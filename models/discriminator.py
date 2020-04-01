@@ -83,6 +83,7 @@ class ScalarGAN(nn.Module):
         self.conv4 = nn.Conv2d(ndf*4, ndf*8, kernel_size=4, stride=2, padding=1)
         self.conv5 = nn.Conv2d(ndf*8, ndf*1, kernel_size=4, stride=2, padding=1)
         self.conv6 = nn.Conv2d(ndf*1, 1, kernel_size=7, stride=1, padding=0)
+        # self.conv7 = nn.Conv2d(1, 1, kernel_size=6, stride=1, padding=0) # for deeplab
 
         self.leaky_relu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
         self.sigmoid = nn.Sigmoid()
@@ -99,6 +100,7 @@ class ScalarGAN(nn.Module):
         x = self.conv5(x)
         x = self.leaky_relu(x)
         x = self.conv6(x)
+        # x = self.conv7(x)
         # x = self.sigmoid(x)
         return x
 

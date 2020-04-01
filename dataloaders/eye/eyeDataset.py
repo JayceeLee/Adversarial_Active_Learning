@@ -5,9 +5,12 @@ import numpy as np
 import glob
 import pickle
 from PIL import Image
+import cv2
 
 file_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append("%s/../" % file_path)
+
+from utils.utils import rescale_image, convt_array_to_PIL
 
 NUM_CLASSES = 4
 
@@ -54,6 +57,27 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
                 im = f.convert("L").copy()
             lb_filename = self.train_data_list[idx].replace("/images/", "/masks/").replace(".png", ".npy")
             lb = np.load(lb_filename)
+
+            # ### opencv read images ###
+            # im = cv2.imread(self.train_data_list[idx], cv2.IMREAD_GRAYSCALE)
+            # lb_filename = self.train_data_list[idx].replace("/images/", "/masks/").replace(".png", ".npy")
+            # lb = np.load(lb_filename)
+            # ## pad into 400x400 ##
+            # # im = np.concatenate(
+            # #     (np.zeros((75, 400), dtype=np.unit8),
+            # #      np.array(im),
+            # #      np.zeros((75, 400), dtype=np.unit8)), axis=0)
+            # # lb = np.concatenate(
+            # #     (np.zeros((75, 400), dtype=np.unit8),
+            # #      np.array(lb),
+            # #      np.zeros((75, 400), dtype=np.unit8)), axis=0)
+            # im = cv2.copyMakeBorder(np.array(im), 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # lb = cv2.copyMakeBorder(lb, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # ## pad into 400x400 ##
+            # im = rescale_image(im)
+            # im = convt_array_to_PIL(im)
+            # ### opencv read images ###
+
             if self.transforms is not None:
                 lb = Image.fromarray(lb)
                 im, lb = self.transforms(im, lb)
@@ -70,8 +94,9 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
     def __getitem__(self, index):
         im = self.all_images[index]
         lb = self.all_labels[index]
-        im = im[np.newaxis, :, :]
+        im = im[np.newaxis, :, :] / 255.0
         return np.concatenate((im, im, im), axis=0), lb
+        # return im, lb
         # if self.transforms:
         #     im, lb = self.apply_transform(
         #         im,
@@ -144,6 +169,20 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
         for idx in range(len(self.data_to_train)):
             with Image.open(self.data_to_train[idx]) as f:
                 im = f.convert("L").copy()
+
+            ### opencv read images ###
+            # im = cv2.imread(self.data_to_train[idx], cv2.IMREAD_GRAYSCALE)
+            # ## pad into 400x400 ##
+            # # im = np.concatenate(
+            # #     (np.zeros((75, 400), dtype=np.unit8),
+            # #      np.array(im),
+            # #      np.zeros((75, 400), dtype=np.unit8)), axis=0)
+            # im = cv2.copyMakeBorder(im, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # # im = rescale_image(im)
+            # im = convt_array_to_PIL(im)
+            # ## pad into 400x400 ##
+            ### opencv read images ###
+
             if self.transforms is not None:
                 im, _ = self.transforms(im, None)
 
@@ -154,16 +193,9 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         im = self.all_images[index]
-        im = im[np.newaxis, :, :]
+        im = im[np.newaxis, :, :] / 255.0
         return np.concatenate((im, im, im), axis=0)
-        # if self.transforms:
-        #     im, lb = self.apply_transform(
-        #         im,
-        #         None,
-        #     )
-        #     return im, np.asarray(lb)
-        #
-        # return np.expand_dims(im, axis=0)
+        # return im
 
     def apply_transform(
             self, img, lb
@@ -210,14 +242,27 @@ class EverestDataset(torch.utils.data.Dataset):
             (len(self.label_list), self.image_size[0], self.image_size[1])
         )
         for idx in range(len(self.img_list)):
-            # im = Image.open(self.img_list[idx])
-            # im = np.float32(np.array(im))
-            with Image.open(self.img_list[idx]) as f:
-                im = f.convert("L").copy()
+            # with Image.open(self.img_list[idx]) as f:
+            #     im = f.convert("L").copy()
+            im = cv2.imread(self.img_list[idx], cv2.IMREAD_GRAYSCALE)
             lb_filename = self.img_list[idx].replace("/images/", "/labels/").replace(".png", ".pkl")
             with open(lb_filename, "rb") as f:
                 dict = pickle.load(f)
             label = dict['mask']
+
+            # im = cv2.resize(np.array(im), (self.image_size[0], self.image_size[1]), cv2.INTER_LINEAR)
+            # label = cv2.resize(label, (self.image_size[0], self.image_size[1]), cv2.INTER_NEAREST)
+
+            # ### resize into (400, 250) then pad into (400, 400) ###
+            # im = cv2.resize(np.array(im), (400, 250), cv2.INTER_LINEAR)
+            # label = cv2.resize(label, (400, 250), cv2.INTER_NEAREST)
+            # im = cv2.copyMakeBorder(im, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # label = cv2.copyMakeBorder(label, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # ### resize into (400, 250) then pad into (400, 400) ###
+
+            # im = rescale_image(im)
+            im = convt_array_to_PIL(im)
+
             if self.transforms is not None:
                 label = Image.fromarray(label)
                 im, label = self.transforms(im, label)
@@ -234,8 +279,9 @@ class EverestDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         im = self.all_images[index]
         label = self.all_labels[index]
-        im = im[np.newaxis, :, :]
+        im = im[np.newaxis, :, :] / 255.0
         return np.concatenate((im, im, im), axis=0), label
+        # return im, label
         # if self.transforms is not None:
         #     im_t, lb_t = self.transforms(im, label)
         # else:
