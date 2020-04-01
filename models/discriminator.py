@@ -74,7 +74,7 @@ def init_net(net, device, init_type, init_gain=1.0):
 
 class ScalarGAN(nn.Module):
     """Defines a ScalarGAN discriminator"""
-    def __init__(self, num_classes, ndf = 64):
+    def __init__(self, num_classes, ndf=64):
         super(ScalarGAN, self).__init__()
 
         self.conv1 = nn.Conv2d(num_classes, ndf, kernel_size=4, stride=2, padding=1)
@@ -82,7 +82,7 @@ class ScalarGAN(nn.Module):
         self.conv3 = nn.Conv2d(ndf*2, ndf*4, kernel_size=4, stride=2, padding=1)
         self.conv4 = nn.Conv2d(ndf*4, ndf*8, kernel_size=4, stride=2, padding=1)
         self.conv5 = nn.Conv2d(ndf*8, ndf*1, kernel_size=4, stride=2, padding=1)
-        self.conv6 = nn.Conv2d(ndf*1, 1, kernel_size=5, stride=1, padding=0)
+        self.conv6 = nn.Conv2d(ndf*1, 1, kernel_size=7, stride=1, padding=0)
 
         self.leaky_relu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
         self.sigmoid = nn.Sigmoid()
@@ -98,11 +98,9 @@ class ScalarGAN(nn.Module):
         x = self.leaky_relu(x)
         x = self.conv5(x)
         x = self.leaky_relu(x)
-        map = x
         x = self.conv6(x)
-        x = self.sigmoid(x)
-
-        return map, x
+        # x = self.sigmoid(x)
+        return x
 
 class PatchGAN(nn.Module):
     """Defines a PatchGAN discriminator"""
@@ -162,7 +160,7 @@ class PixelGAN(nn.Module):
         self.conv3 = nn.Conv2d(ndf*2, ndf*4, kernel_size=4, stride=2, padding=1)
         self.conv4 = nn.Conv2d(ndf*4, ndf*8, kernel_size=4, stride=2, padding=1)
         self.conv5 = nn.Conv2d(ndf*8, 1, kernel_size=4, stride=2, padding=1)
-        self.interp = nn.Upsample(size=(input_size[1], input_size[0]), mode='bilinear', align_corners=False)
+        self.interp = nn.Upsample(size=(input_size[0], input_size[1]), mode='bilinear', align_corners=False)
 
         self.leaky_relu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
 

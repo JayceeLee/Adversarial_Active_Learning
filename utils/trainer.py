@@ -10,8 +10,8 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 import torchvision.utils as vutils
 
-import matplotlib.pyplot as plt
-plt.switch_backend('agg')
+# import matplotlib.pyplot as plt
+# plt.switch_backend('agg')
 
 file_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append("%s/.." % file_path)
@@ -34,8 +34,8 @@ def validate(
     args,
     logger,
     writer,
-    val_loss=float("inf"),
-    val_iou=float("inf"),
+    val_loss,
+    val_iou,
 ):
     '''
     Pytorch model validation module
@@ -46,7 +46,7 @@ def validate(
     :param epoch: epoch counter used to display training progress
     :param val_loss: logs loss prior to invocation of train on batch
     '''
-    logger.info("==== Validation ====")
+    logger.info("================== Validation ==================")
 
     seg_loss = torch.nn.CrossEntropyLoss().to(args.device)
     model.eval()
@@ -69,16 +69,18 @@ def validate(
         loss = seg_loss(prediction, label)
         loss_f += loss.item()
 
-        flat_pred = prediction.detach().cpu().numpy().flatten()
+        pred_img = prediction.argmax(dim=1, keepdim=True)
+        flat_pred = pred_img.detach().cpu().numpy().flatten()
         flat_gt = label.detach().cpu().numpy().flatten()
-        iou = compute_mean_iou(flat_pred=flat_pred, flat_label=flat_gt)
-        avg_iou += iou
+        miou, _ = compute_mean_iou(flat_pred=flat_pred, flat_label=flat_gt)
+        avg_iou += miou
 
-        filename = os.path.join(args.exp_dir, "iter_{}.png".format(i_iter))
-        gen_img = vutils.make_grid(prediction, padding=2, normalize=True)
         if args.tensorboard and (writer != None):
-            writer.add_image('Val/Predictions', gen_img, i_iter)
-        vutils.save_image(gen_img, filename)
+            filename = os.path.join(args.exp_dir, "iter_{}.png".format(i_iter+batch_idx))
+            pred_img = pred_img.float()
+            gen_img = vutils.make_grid(pred_img, padding=2, normalize=True)
+            writer.add_image('Val/Predictions', gen_img, i_iter+batch_idx)
+            vutils.save_image(gen_img, filename)
 
     loss_f /= float(val_loader.__len__())
     avg_iou /= float(val_loader.__len__())
@@ -95,8 +97,8 @@ def validate(
         torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "Dscalar_best_loss.pth"))
         torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "Dpatch_best_loss.pth"))
         torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "Dpixel_best_loss.pth"))
-    if new_miou < val_iou:
-        print(val_iou, '--->', val_iou)
+    if new_miou > val_iou:
+        print(val_iou, '--->', new_miou)
         logger.info('saving checkpoint ....')
         torch.save(model.state_dict(), os.path.join(args.exp_dir, "model_val_best_miou.pth"))
         torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "Dscalar_best_miou.pth"))
@@ -195,7 +197,7 @@ def run_training(
     val_loss = []
     val_loss_f = float("inf")
     val_miou = []
-    val_miou_f = float("inf")
+    val_miou_f = float("-inf")
     loss_seg_min = float("inf")
 
     for i_iter in range(args.total_iterations):
@@ -247,8 +249,8 @@ def run_training(
             _, batch = next(trainloader_iter)
 
         images, labels = batch
-        images = images.to(args.device)
-        labels = labels.long().to(args.device)
+        images = Variable(images).to(args.device)
+        labels = Variable(labels.long()).to(args.device)
 
         pred_source = model_seg(images)
         pred_source_softmax = F.softmax(pred_source, dim=1)
@@ -264,7 +266,7 @@ def run_training(
             _, batch = next(targetloader_iter)
 
         images = batch
-        images = images.to(args.device)
+        images = Variable(images).to(args.device)
         pred_target = model_seg(images)
         pred_softmax_target = F.softmax(pred_target, dim=1)
 
@@ -308,11 +310,11 @@ def run_training(
         ############# (2) train discriminator ###########
         #################################################
         for param in disc_scalar.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
         for param in disc_patch.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
         for param in disc_pixel.parameters():
-            param.requires_grad = False
+            param.requires_grad = True
 
         ## train with source ##
         pred_source_softmax = pred_source_softmax.detach()
@@ -426,7 +428,7 @@ def run_training(
                               loss_D_pixel_value,
                               i_iter)
 
-        current_epoch = i_iter * args.batch_size // args.total_iterations
+        current_epoch = i_iter * args.batch_size // args.tot_source
         if i_iter % args.iters_to_eval == 0:
             val_loss_f, val_miou_f = validate(
                 i_iter=i_iter,
@@ -446,7 +448,7 @@ def run_training(
             val_loss.append(val_loss_f)
             val_loss_f = np.min(np.array(val_loss))
             val_miou.append(val_miou_f)
-            val_miou_f = np.min(np.array(val_miou))
+            val_miou_f = np.max(np.array(val_miou))
 
             if args.tensorboard and (writer != None):
                 writer.add_scalar('Val/Cross_Entropy_Target',

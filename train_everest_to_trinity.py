@@ -10,6 +10,7 @@ from utils.trainer import run_training, run_testing
 from utils.image_pool import ImagePool
 from utils.model_utils import load_models
 from utils.utils import make_logger
+from utils import dual_transforms
 
 import torch
 import torch.optim as optim
@@ -25,10 +26,10 @@ def parse_arguments():
     parser.add_argument('name', type=str,
                         help="Name of the model for storing and loading purposes.")
     parser.add_argument("--source_root", type=str,
-                    default="/home/yirus/Datasets/OpenEDS_SS_TL",
+                    default="/home/yirus/Datasets/Active_Learning/everest",
                       help="data directory of Source dataset",)
     parser.add_argument("--target_root", type=str,
-                    default="/home/yirus/Datasets/Calipso/GT_0.25_extra",
+                    default="/home/yirus/Datasets/Active_Learning/SS_Data_Cropped250x400",
                       help="data directory of Target dataset",)
 
     parser.add_argument("--nclass",type=int, default=4, help="#classes")
@@ -43,7 +44,7 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int, default=32, help="#data per batch")
     parser.add_argument("--epoch_to_eval", type=int, default=4, help="#epochs to evaluate")
 
-    parser.add_argument('--image_size', type=int, default=184,
+    parser.add_argument('--image_size', type=list, default=[224, 224],
                         help='image_size scalar (currently support square images)')
     parser.add_argument('--pool_size', type=int, default=0,
                         help='buffer size for discriminator')
@@ -84,19 +85,32 @@ def main(args):
     print("====== Loading Training Data ======")
     print("===================================")
 
+    transforms_source = dual_transforms.Compose(
+        [
+            dual_transforms.CenterCrop((args.image_size[0], args.image_size[1])),
+        ]
+    )
+
+    transforms_target = dual_transforms.Compose(
+        [
+            dual_transforms.CenterCrop((args.image_size[0], args.image_size[1])),
+        ]
+    )
+
     source_data = EverestDataset(
         root=args.source_root,
         image_size=args.image_size,
-        photometric_transform=None,
-        train_bool=True,
+        transforms=transforms_source,
+        train_bool=False,
     )
 
     target_data = OpenEDSDataset_withoutLabels(
-        root=args.target_root,
+        root=os.path.join(args.target_root, "train"),
         image_size=args.image_size,
-        photometric_transform=None,
+        transforms=transforms_target,
     )
 
+    args.tot_source = source_data.__len__()
     args.total_iterations = args.num_epochs * source_data.__len__() // args.batch_size
     args.iters_to_eval = args.epoch_to_eval * source_data.__len__() // args.batch_size
 
@@ -107,10 +121,10 @@ def main(args):
         root=os.path.join(args.target_root, "validation"),
         image_size=args.image_size,
         data_to_train="",
-        photometric_transform=None,
+        transforms=transforms_target,
         train_bool=False,
     )
-    class_weight_source = 1.0 / source_data.get_class_probability().to(device)
+    # class_weight_source = 1.0 / source_data.get_class_probability().to(device)
 
     source_loader = torch.utils.data.DataLoader(
         source_data,
@@ -147,7 +161,7 @@ def main(args):
 
     optimizer_seg = optim.Adam(
         model_seg.parameters(),
-        lr=args.lr_SS,
+        lr=args.lr_seg,
         betas=(args.beta1, 0.999),
     )
     optimizer_seg.zero_grad()
@@ -163,7 +177,7 @@ def main(args):
     )
     optimizer_disc.zero_grad()
 
-    seg_loss_source = torch.nn.CrossEntropyLoss(weight=class_weight_source)
+    seg_loss_source = torch.nn.CrossEntropyLoss().to(device)
     gan_loss = torch.nn.BCEWithLogitsLoss().to(device)
 
     history_true_mask = ImagePool(args.pool_size)
@@ -203,7 +217,7 @@ def main(args):
         root=os.path.join(args.target_root, "test"),
         image_size=args.image_size,
         data_to_train="",
-        photometric_transform=None,
+        transforms=transforms_target,
         train_bool=False,
     )
     test_loader = torch.utils.data.DataLoader(

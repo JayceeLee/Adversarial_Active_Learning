@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import glob
 import pickle
+from PIL import Image
 
 file_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append("%s/../" % file_path)
@@ -29,32 +30,36 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
                  root,
                  image_size,
                  data_to_train,
-                 photometric_transform=None,
+                 transforms=None,
                  train_bool=False,
         ):
         self.root = root
-        self.photometric_transform = photometric_transform
+        self.transforms = transforms
         self.train_bool = train_bool
         self.image_size = image_size
         self.data_to_train = data_to_train
 
-        if self.data_to_train != None:
+        if self.data_to_train != '':
             with open(self.data_to_train, "rb") as f:
                 self.train_data_list = pickle.load(f)
         else:
             self.train_data_list = glob.glob(self.root+"/images/*.png")
 
-        print("OpenEDS: Found {} images".format(len(self.train_data_list)))
+        print("OpenEDS: loading {} images ........".format(len(self.train_data_list)))
 
-        self.all_images = np.empty((len(self.train_data_list), self.image_size, self.image_size), dtype=np.float32)
-        self.all_labels = np.empty((len(self.train_data_list), self.image_size, self.image_size))
+        self.all_images = np.empty((len(self.train_data_list), self.image_size[0], self.image_size[1]), dtype=np.float32)
+        self.all_labels = np.empty((len(self.train_data_list), self.image_size[0], self.image_size[1]))
         for idx in range(len(self.train_data_list)):
-            im = np.load(self.train_data_list[idx])
-            im = np.float32(im)
-            lb_filename = self.train_data_list[idx].replace("/images/", "/masks/")
+            with Image.open(self.train_data_list[idx]) as f:
+                im = f.convert("L").copy()
+            lb_filename = self.train_data_list[idx].replace("/images/", "/masks/").replace(".png", ".npy")
             lb = np.load(lb_filename)
-            self.all_images[idx, :] = im.copy()
-            self.all_labels[idx, :] = lb.copy()
+            if self.transforms is not None:
+                lb = Image.fromarray(lb)
+                im, lb = self.transforms(im, lb)
+
+            self.all_images[idx,:] = np.array(im).astype(np.float16)
+            self.all_labels[idx,:] = np.int64(np.array(lb))
 
         if self.train_bool:
             self.counts = self.__compute_class_probability()
@@ -65,15 +70,16 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
     def __getitem__(self, index):
         im = self.all_images[index]
         lb = self.all_labels[index]
-
-        if self.photometric_transform:
-            im, lb = self.apply_transform(
-                im,
-                lb,
-            )
-            return im, np.asarray(lb)
-
-        return np.expand_dims(im, axis=0), np.asarray(lb)
+        im = im[np.newaxis, :, :]
+        return np.concatenate((im, im, im), axis=0), lb
+        # if self.transforms:
+        #     im, lb = self.apply_transform(
+        #         im,
+        #         lb,
+        #     )
+        #     return im, np.asarray(lb)
+        #
+        # return np.expand_dims(im, axis=0), np.asarray(lb)
 
     def __compute_class_probability(self):
         counts = dict((i, 0) for i in range(NUM_CLASSES))
@@ -103,7 +109,7 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
     def apply_transform(
             self, img, lb
     ):
-        img, lb = self.photometric_transform(
+        img, lb = self.transforms(
             img,
             lb,
         )
@@ -121,44 +127,48 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
     def __init__(self,
                  root,
                  image_size,
-                 photometric_transform=None,
+                 transforms=None,
         ):
         self.root = root
-        self.photometric_transform = photometric_transform
+        self.transforms = transforms
         self.image_size = image_size
 
         self.data_to_train = glob.glob(self.root+"/images/*.png")
 
-        print("OpenEDS: Found {} images".format(len(self.data_to_train)))
+        print("OpenEDS: Loading {} images ........".format(len(self.data_to_train)))
 
         self.all_images = np.empty(
-            (len(self.data_to_train), self.image_size, self.image_size),
+            (len(self.data_to_train), self.image_size[0], self.image_size[1]),
             dtype=np.float32
         )
         for idx in range(len(self.data_to_train)):
-            im = np.load(self.data_to_train[idx])
-            im = np.float32(im)
-            self.all_images[idx, :] = im.copy()
+            with Image.open(self.data_to_train[idx]) as f:
+                im = f.convert("L").copy()
+            if self.transforms is not None:
+                im, _ = self.transforms(im, None)
+
+            self.all_images[idx, :] = np.array(im).astype(np.float16)
 
     def __len__(self):
         return len(self.data_to_train)
 
     def __getitem__(self, index):
         im = self.all_images[index]
-
-        if self.photometric_transform:
-            im, lb = self.apply_transform(
-                im,
-                None,
-            )
-            return im, np.asarray(lb)
-
-        return np.expand_dims(im, axis=0)
+        im = im[np.newaxis, :, :]
+        return np.concatenate((im, im, im), axis=0)
+        # if self.transforms:
+        #     im, lb = self.apply_transform(
+        #         im,
+        #         None,
+        #     )
+        #     return im, np.asarray(lb)
+        #
+        # return np.expand_dims(im, axis=0)
 
     def apply_transform(
             self, img, lb
     ):
-        img, lb = self.photometric_transform(
+        img, lb = self.transforms(
             img,
             lb,
         )
@@ -171,12 +181,12 @@ class EverestDataset(torch.utils.data.Dataset):
     def __init__(self,
                  root,
                  image_size,
-                 photometric_transform=None,
+                 transforms=None,
                  train_bool=False,
         ):
         self.root = root
         self.image_size = image_size
-        self.photometric_transform = photometric_transform
+        self.transforms = transforms
         self.train_bool = train_bool
 
         self.img_list = glob.glob(os.path.join(self.root, "images")+"/*.png")
@@ -188,25 +198,32 @@ class EverestDataset(torch.utils.data.Dataset):
                 len(self.label_list)
             )
 
-        print("Everest: Found {} images and {} labels".format(
+        print("Everest: loading {} images and {} labels ........".format(
             len(self.img_list), len(self.label_list))
         )
 
         self.all_images = np.empty(
-            (len(self.img_list), self.image_size, self.image_size),
+            (len(self.img_list), self.image_size[0], self.image_size[1]),
             dtype=np.float32
         )
         self.all_labels = np.empty(
-            (len(self.label_list), self.image_size, self.image_size)
+            (len(self.label_list), self.image_size[0], self.image_size[1])
         )
         for idx in range(len(self.img_list)):
-            im = np.load(self.img_list[idx])
-            im = np.float32(im)
-            lb_filename = self.img_list[idx].replace("/images/", "/labels/")
-            label = np.load(lb_filename)
-            label = np.int64(label)
-            self.all_images[idx,:] = im.copy()
-            self.all_labels[idx,:] = label.copy()
+            # im = Image.open(self.img_list[idx])
+            # im = np.float32(np.array(im))
+            with Image.open(self.img_list[idx]) as f:
+                im = f.convert("L").copy()
+            lb_filename = self.img_list[idx].replace("/images/", "/labels/").replace(".png", ".pkl")
+            with open(lb_filename, "rb") as f:
+                dict = pickle.load(f)
+            label = dict['mask']
+            if self.transforms is not None:
+                label = Image.fromarray(label)
+                im, label = self.transforms(im, label)
+
+            self.all_images[idx,:] = np.array(im).astype(np.float16)
+            self.all_labels[idx,:] = np.int64(np.array(label))
 
         if self.train_bool:
             self.counts = self.__compute_class_probability()
@@ -217,13 +234,13 @@ class EverestDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         im = self.all_images[index]
         label = self.all_labels[index]
-
-        if self.photometric_transform is not None:
-            im_t = self.photometric_transform(im)
-        else:
-            im_t = im.copy()
-
-        return np.expand_dims(im_t, axis=0), label
+        im = im[np.newaxis, :, :]
+        return np.concatenate((im, im, im), axis=0), label
+        # if self.transforms is not None:
+        #     im_t, lb_t = self.transforms(im, label)
+        # else:
+        #     im_t, lb_t = im.copy(), label.copy()
+        # return np.expand_dims(im_t, axis=0), lb_t
 
     def __compute_class_probability(self):
         counts = dict((i, 0) for i in range(NUM_CLASSES))
