@@ -45,7 +45,7 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int, default=32, help="#data per batch")
     parser.add_argument("--epoch_to_eval", type=int, default=4, help="#epochs to evaluate")
 
-    parser.add_argument('--image_size', type=list, default=[400, 400],
+    parser.add_argument('--image_size', type=list, default=[224, 224],
                         help='image_size scalar (currently support square images)')
     parser.add_argument('--pool_size', type=int, default=0,
                         help='buffer size for discriminator')
@@ -87,39 +87,39 @@ def main(args):
     print("===================================")
     transforms_target = dual_transforms.Compose(
         [
-            dual_transforms.CenterCrop((args.image_size[0], args.image_size[1])),
+            dual_transforms.CenterCrop((400,400)),
+            dual_transforms.Scale(args.image_size[0]),
         ]
     )
-
-    # train_target_data = OpenEDSDataset_withLabels(
-    #     root=os.path.join(args.target_root, "train"),
-    #     image_size=args.image_size,
-    #     data_to_train="",
-    #     transforms=transforms_target,
-    #     train_bool=False,
-    # )
-
-    train_target_data = EverestDataset(
-        root=args.source_root,
+    train_target_data = OpenEDSDataset_withLabels(
+        root=os.path.join(args.target_root, "train"),
         image_size=args.image_size,
-        transforms=None,
+        data_to_train="",
+        transforms=transforms_target,
         train_bool=False,
     )
+
+    # train_target_data = EverestDataset(
+    #     root=args.source_root,
+    #     image_size=args.image_size,
+    #     transforms=None,
+    #     train_bool=False,
+    # )
 
     args.tot_source = 11764
     args.total_iterations = args.num_epochs * 11764 // args.batch_size
     args.iters_to_eval = args.epoch_to_eval * 11764 // args.batch_size
 
-    # print("===================================")
-    # print("========= Loading Val Data ========")
-    # print("===================================")
-    # val_target_data = OpenEDSDataset_withLabels(
-    #     root=os.path.join(args.target_root, "validation"),
-    #     image_size=args.image_size,
-    #     data_to_train="",
-    #     transforms=transforms_target,
-    #     train_bool=False,
-    # )
+    print("===================================")
+    print("========= Loading Val Data ========")
+    print("===================================")
+    val_target_data = OpenEDSDataset_withLabels(
+        root=os.path.join(args.target_root, "validation"),
+        image_size=args.image_size,
+        data_to_train="",
+        transforms=transforms_target,
+        train_bool=False,
+    )
 
     train_loader = torch.utils.data.DataLoader(
         train_target_data,
@@ -128,13 +128,13 @@ def main(args):
         num_workers=args.workers,
         pin_memory=True,
     )
-    # val_loader = torch.utils.data.DataLoader(
-    #     val_target_data,
-    #     batch_size=args.batch_size,
-    #     shuffle=True,
-    #     num_workers=args.workers,
-    #     pin_memory=True,
-    # )
+    val_loader = torch.utils.data.DataLoader(
+        val_target_data,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers,
+        pin_memory=True,
+    )
 
     model_seg = load_models(
         mode="segmentation",
@@ -149,11 +149,11 @@ def main(args):
     optimizer_seg.zero_grad()
 
     seg_loss_target = torch.nn.CrossEntropyLoss().to(device)
-    interp = torch.nn.Upsample(
-        size=(args.image_size[1], args.image_size[0]),
-        mode='bilinear',
-        align_corners=False,
-    )
+    # interp = torch.nn.Upsample(
+    #     size=(args.image_size[1], args.image_size[0]),
+    #     mode='bilinear',
+    #     align_corners=False,
+    # )
 
     trainloader_iter = enumerate(train_loader)
 
@@ -186,8 +186,8 @@ def main(args):
         labels = Variable(labels.long()).to(args.device)
 
         pred = model_seg(images)
-        pred_interp = interp(pred)
-        loss_seg = seg_loss_target(pred_interp, labels)
+        # pred_interp = interp(pred)
+        loss_seg = seg_loss_target(pred, labels)
 
         current_loss_seg = loss_seg.item()
         loss_seg_value += current_loss_seg
@@ -201,32 +201,32 @@ def main(args):
             loss_seg_value,)
         )
 
-        # current_epoch = i_iter * args.batch_size // args.tot_source
-        # if i_iter % args.iters_to_eval == 0:
-        #     val_loss_f, val_miou_f = validate_baseline(
-        #         i_iter=i_iter,
-        #         val_loader=val_loader,
-        #         model=model_seg,
-        #         epoch=current_epoch,
-        #         logger=logger,
-        #         writer=writer,
-        #         val_loss=val_loss_f,
-        #         val_iou=val_miou_f,
-        #         args=args,
-        #     )
-        #
-        #     val_loss.append(val_loss_f)
-        #     val_loss_f = np.min(np.array(val_loss))
-        #     val_miou.append(val_miou_f)
-        #     val_miou_f = np.max(np.array(val_miou))
-        #
-        #     if args.tensorboard and (writer != None):
-        #         writer.add_scalar('Val/Cross_Entropy_Target',
-        #                           val_loss_f,
-        #                           i_iter)
-        #         writer.add_scalar('Val/mIoU_Target',
-        #                           val_miou_f,
-        #                           i_iter)
+        current_epoch = i_iter * args.batch_size // args.tot_source
+        if i_iter % args.iters_to_eval == 0:
+            val_loss_f, val_miou_f = validate_baseline(
+                i_iter=i_iter,
+                val_loader=val_loader,
+                model=model_seg,
+                epoch=current_epoch,
+                logger=logger,
+                writer=writer,
+                val_loss=val_loss_f,
+                val_iou=val_miou_f,
+                args=args,
+            )
+
+            val_loss.append(val_loss_f)
+            val_loss_f = np.min(np.array(val_loss))
+            val_miou.append(val_miou_f)
+            val_miou_f = np.max(np.array(val_miou))
+
+            if args.tensorboard and (writer != None):
+                writer.add_scalar('Val/Cross_Entropy_Target',
+                                  val_loss_f,
+                                  i_iter)
+                writer.add_scalar('Val/mIoU_Target',
+                                  val_miou_f,
+                                  i_iter)
 
         is_better_ss = current_loss_seg < loss_seg_min
         if is_better_ss:
@@ -241,46 +241,46 @@ def main(args):
     if args.tensorboard and (writer != None):
         writer.close()
 
-    # with open("%s/train_performance.pkl" % args.exp_dir, "wb") as f:
-    #     pickle.dump([val_loss, val_miou], f)
-    # logger.info("==========================================")
-    # logger.info("Evaluating on test data ...")
-    #
-    # testdata = OpenEDSDataset_withLabels(
-    #     root=os.path.join(args.target_root, "test"),
-    #     image_size=args.image_size,
-    #     data_to_train="",
-    #     transforms=transforms_target,
-    #     train_bool=False,
-    # )
-    # test_loader = torch.utils.data.DataLoader(
-    #     testdata,
-    #     batch_size=1,
-    #     shuffle=False,
-    #     num_workers=0,
-    #     pin_memory=True,
-    # )
-    #
-    # pm = run_testing(
-    #     dataset=testdata,
-    #     test_loader=test_loader,
-    #     model=model_seg,
-    #     args=args,
-    # )
-    #
-    # logger.info('Global Mean Accuracy: {:.3f}'.format(np.array(pm.GA).mean()))
-    # logger.info('Mean IOU: {:.3f}'.format(np.array(pm.IOU).mean()))
-    # logger.info('Mean Recall: {:.3f}'.format(np.array(pm.Recall).mean()))
-    # logger.info('Mean Precision: {:.3f}'.format(np.array(pm.Precision).mean()))
-    # logger.info('Mean F1: {:.3f}'.format(np.array(pm.F1).mean()))
-    #
-    # IOU_ALL = np.array(pm.Iou_all)
-    # logger.info("Back: {:.4f}, Sclera: {:.4f}, Iris: {:.4f}, Pupil: {:.4f}".format(
-    #     IOU_ALL[:, 0].mean(),
-    #     IOU_ALL[:, 1].mean(),
-    #     IOU_ALL[:, 2].mean(),
-    #     IOU_ALL[:, 3].mean(),
-    # ))
+    with open("%s/train_performance.pkl" % args.exp_dir, "wb") as f:
+        pickle.dump([val_loss, val_miou], f)
+    logger.info("==========================================")
+    logger.info("Evaluating on test data ...")
+
+    testdata = OpenEDSDataset_withLabels(
+        root=os.path.join(args.target_root, "test"),
+        image_size=args.image_size,
+        data_to_train="",
+        transforms=transforms_target,
+        train_bool=False,
+    )
+    test_loader = torch.utils.data.DataLoader(
+        testdata,
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+    )
+
+    pm = run_testing(
+        dataset=testdata,
+        test_loader=test_loader,
+        model=model_seg,
+        args=args,
+    )
+
+    logger.info('Global Mean Accuracy: {:.3f}'.format(np.array(pm.GA).mean()))
+    logger.info('Mean IOU: {:.3f}'.format(np.array(pm.IOU).mean()))
+    logger.info('Mean Recall: {:.3f}'.format(np.array(pm.Recall).mean()))
+    logger.info('Mean Precision: {:.3f}'.format(np.array(pm.Precision).mean()))
+    logger.info('Mean F1: {:.3f}'.format(np.array(pm.F1).mean()))
+
+    IOU_ALL = np.array(pm.Iou_all)
+    logger.info("Back: {:.4f}, Sclera: {:.4f}, Iris: {:.4f}, Pupil: {:.4f}".format(
+        IOU_ALL[:, 0].mean(),
+        IOU_ALL[:, 1].mean(),
+        IOU_ALL[:, 2].mean(),
+        IOU_ALL[:, 3].mean(),
+    ))
 
 if __name__ == "__main__":
     args = parse_arguments()
