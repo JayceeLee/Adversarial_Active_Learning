@@ -189,14 +189,11 @@ def run_testing(
     '''
     model.eval()
 
-    # interp = torch.nn.Upsample(
-    #     size=(args.image_size[1], args.image_size[0]),
-    #     mode='bilinear',
-    #     align_corners=False,
-    # )
-
     ## Compute Metrics:
-    Global_Accuracy=[]; Class_Accuracy=[]; Precision=[]; Recall=[]; F1=[]; IOU=[];IOU_list=[]; iou_all=[]
+    Global_Accuracy=[];
+    Class_Accuracy=[];
+    Precision=[]; Recall=[]; F1=[];
+    IOU=[];IOU_list=[]; iou_all=[]
     pm_orig = Performance_Metrics(
         Global_Accuracy,
         Class_Accuracy,
@@ -234,11 +231,12 @@ def run_testing(
             pm_orig.Recall.append(rec)
             pm_orig.F1.append(f1)
             pm_orig.IOU.append(iou)
+            pm_orig.IOU_list.append(iou_list)
 
         pred = pred[0, :, :]
         pred = rescale_image(pred)
         pred = convt_array_to_PIL(pred)
-        filename = ntpath.basename(dataset.img_list[batch_idx])
+        filename = ntpath.basename(dataset.train_data_list[batch_idx])
         filename = os.path.join(args.exp_dir, filename)
         pred.save(filename)
 
