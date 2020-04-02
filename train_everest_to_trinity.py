@@ -6,6 +6,8 @@ import pickle
 import itertools
 
 from dataloaders.eye.eyeDataset import OpenEDSDataset_withoutLabels, OpenEDSDataset_withLabels, EverestDataset
+from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
+
 from utils.trainer import run_training, run_testing
 from utils.image_pool import ImagePool
 from utils.model_utils import load_models
@@ -43,6 +45,7 @@ def parse_arguments():
     parser.add_argument("--num_epochs", type=int, default=200, help="#epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="#data per batch")
     parser.add_argument("--epoch_to_eval", type=int, default=4, help="#epochs to evaluate")
+    parser.add_argument("--epoch_to_eval_source", type=int, default=40, help="#epochs to evaluate")
 
     parser.add_argument('--image_size', type=list, default=[224, 224],
                         help='image_size scalar (currently support square images)')
@@ -85,36 +88,41 @@ def main(args):
     print("====== Loading Training Data ======")
     print("===================================")
 
-    transforms_source = dual_transforms.Compose(
+    transforms_shape_source = dual_transforms.Compose(
         [
             dual_transforms.CenterCrop((400,400)),
             dual_transforms.Scale(args.image_size[0]),
         ]
     )
 
-    transforms_target = dual_transforms.Compose(
+    transforms_shape_target = dual_transforms.Compose(
         [
             dual_transforms.CenterCrop((400,400)),
             dual_transforms.Scale(args.image_size[0]),
         ]
     )
+
+    photo_transformer = PhotometricTransform(photometric_transform_config)
 
     source_data = EverestDataset(
         root=args.source_root,
         image_size=args.image_size,
-        transforms=transforms_source,
+        shape_transforms=transforms_shape_source,
+        photo_transforms=photo_transformer,
         train_bool=False,
     )
 
     target_data = OpenEDSDataset_withoutLabels(
         root=os.path.join(args.target_root, "train"),
         image_size=args.image_size,
-        transforms=transforms_target,
+        shape_transforms=transforms_shape_target,
+        photo_transforms=photo_transformer,
     )
 
     args.tot_source = source_data.__len__()
     args.total_iterations = args.num_epochs * source_data.__len__() // args.batch_size
     args.iters_to_eval = args.epoch_to_eval * source_data.__len__() // args.batch_size
+    args.iter_source_to_eval = args.epoch_to_eval_source * source_data.__len__() // args.batch_size
 
     print("===================================")
     print("========= Loading Val Data ========")
@@ -123,7 +131,8 @@ def main(args):
         root=os.path.join(args.target_root, "validation"),
         image_size=args.image_size,
         data_to_train="",
-        transforms=transforms_target,
+        shape_transforms=transforms_shape_target,
+        photo_transforms=None,
         train_bool=False,
     )
     # class_weight_source = 1.0 / source_data.get_class_probability().to(device)
@@ -219,7 +228,8 @@ def main(args):
         root=os.path.join(args.target_root, "test"),
         image_size=args.image_size,
         data_to_train="",
-        transforms=transforms_target,
+        shape_transforms=transforms_shape_target,
+        photo_transforms=None,
         train_bool=False,
     )
     test_loader = torch.utils.data.DataLoader(

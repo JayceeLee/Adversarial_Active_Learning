@@ -7,6 +7,11 @@ import pickle
 from PIL import Image
 import cv2
 
+import matplotlib.pyplot as plt
+
+# from .photometric_transform import PhotometricTransform, photometric_transform_config
+# photo_transformer = PhotometricTransform(photometric_transform_config)
+
 file_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append("%s/../" % file_path)
 
@@ -33,11 +38,13 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
                  root,
                  image_size,
                  data_to_train,
-                 transforms=None,
+                 shape_transforms=None,
+                 photo_transforms=None,
                  train_bool=False,
         ):
         self.root = root
-        self.transforms = transforms
+        self.shape_transforms = shape_transforms
+        self.photo_transforms = photo_transforms
         self.train_bool = train_bool
         self.image_size = image_size
         self.data_to_train = data_to_train
@@ -52,6 +59,8 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
 
         self.all_images = np.empty((len(self.train_data_list), self.image_size[0], self.image_size[1]), dtype=np.float32)
         self.all_labels = np.empty((len(self.train_data_list), self.image_size[0], self.image_size[1]))
+
+        # fig = plt.figure()
         for idx in range(len(self.train_data_list)):
             with Image.open(self.train_data_list[idx]) as f:
                 im = f.convert("L").copy()
@@ -78,12 +87,25 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
             # im = convt_array_to_PIL(im)
             # ### opencv read images ###
 
-            if self.transforms is not None:
+            if self.shape_transforms is not None:
                 lb = Image.fromarray(lb)
-                im, lb = self.transforms(im, lb)
+                im, lb = self.shape_transforms(im, lb)
+            if self.photo_transforms is not None:
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+                # ax = fig.add_subplot(121)
+                # ax.imshow(im, cmap="gray")
+                # ax = fig.add_subplot(122)
+                # ax.imshow(im_ph, cmap="gray")
+                # plt.show()
 
             self.all_images[idx,:] = np.array(im).astype(np.float16)
             self.all_labels[idx,:] = np.int64(np.array(lb))
+
+            # if idx >= 100:
+            #     break
 
         if self.train_bool:
             self.counts = self.__compute_class_probability()
@@ -131,15 +153,6 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
         p_values = values / np.sum(values)
         return torch.Tensor(p_values)
 
-    def apply_transform(
-            self, img, lb
-    ):
-        img, lb = self.transforms(
-            img,
-            lb,
-        )
-        return img, lb
-
 class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
     """
     OpenEDS dataset
@@ -152,10 +165,12 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
     def __init__(self,
                  root,
                  image_size,
-                 transforms=None,
+                 shape_transforms=None,
+                 photo_transforms=None,
         ):
         self.root = root
-        self.transforms = transforms
+        self.shape_transforms = shape_transforms
+        self.photo_transforms = photo_transforms
         self.image_size = image_size
 
         self.data_to_train = glob.glob(self.root+"/images/*.png")
@@ -166,6 +181,8 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
             (len(self.data_to_train), self.image_size[0], self.image_size[1]),
             dtype=np.float32
         )
+
+        # fig = plt.figure()
         for idx in range(len(self.data_to_train)):
             with Image.open(self.data_to_train[idx]) as f:
                 im = f.convert("L").copy()
@@ -178,15 +195,29 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
             # #      np.array(im),
             # #      np.zeros((75, 400), dtype=np.unit8)), axis=0)
             # im = cv2.copyMakeBorder(im, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
-            # # im = rescale_image(im)
+            # #
             # im = convt_array_to_PIL(im)
             # ## pad into 400x400 ##
             ### opencv read images ###
 
-            if self.transforms is not None:
-                im, _ = self.transforms(im, None)
+            if self.shape_transforms is not None:
+                im, _ = self.shape_transforms(im, None)
+
+            if self.photo_transforms is not None:
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+                # ax = fig.add_subplot(121)
+                # ax.imshow(im, cmap="gray")
+                # ax = fig.add_subplot(122)
+                # ax.imshow(im_ph, cmap="gray")
+                # plt.show()
 
             self.all_images[idx, :] = np.array(im).astype(np.float16)
+
+            # if idx >= 100:
+            #     break
 
     def __len__(self):
         return len(self.data_to_train)
@@ -197,15 +228,6 @@ class OpenEDSDataset_withoutLabels(torch.utils.data.Dataset):
         return np.concatenate((im, im, im), axis=0)
         # return im
 
-    def apply_transform(
-            self, img, lb
-    ):
-        img, lb = self.transforms(
-            img,
-            lb,
-        )
-        return img, lb
-
 class EverestDataset(torch.utils.data.Dataset):
     """
     Everest dataset
@@ -213,12 +235,14 @@ class EverestDataset(torch.utils.data.Dataset):
     def __init__(self,
                  root,
                  image_size,
-                 transforms=None,
+                 shape_transforms=None,
+                 photo_transforms=None,
                  train_bool=False,
         ):
         self.root = root
         self.image_size = image_size
-        self.transforms = transforms
+        self.shape_transforms = shape_transforms
+        self.photo_transforms = photo_transforms
         self.train_bool = train_bool
 
         self.img_list = glob.glob(os.path.join(self.root, "images")+"/*.png")
@@ -241,6 +265,8 @@ class EverestDataset(torch.utils.data.Dataset):
         self.all_labels = np.empty(
             (len(self.label_list), self.image_size[0], self.image_size[1])
         )
+
+        # fig = plt.figure()
         for idx in range(len(self.img_list)):
             # with Image.open(self.img_list[idx]) as f:
             #     im = f.convert("L").copy()
@@ -252,23 +278,37 @@ class EverestDataset(torch.utils.data.Dataset):
 
             # im = cv2.resize(np.array(im), (self.image_size[0], self.image_size[1]), cv2.INTER_LINEAR)
             # label = cv2.resize(label, (self.image_size[0], self.image_size[1]), cv2.INTER_NEAREST)
-
             # ### resize into (400, 250) then pad into (400, 400) ###
             # im = cv2.resize(np.array(im), (400, 250), cv2.INTER_LINEAR)
             # label = cv2.resize(label, (400, 250), cv2.INTER_NEAREST)
             # im = cv2.copyMakeBorder(im, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
             # label = cv2.copyMakeBorder(label, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
             # ### resize into (400, 250) then pad into (400, 400) ###
-
             # im = rescale_image(im)
+
             im = convt_array_to_PIL(im)
 
-            if self.transforms is not None:
+            # fig = plt.figure()
+            if self.shape_transforms is not None:
                 label = Image.fromarray(label)
-                im, label = self.transforms(im, label)
+                im, label = self.shape_transforms(im, label)
+
+            if self.photo_transforms is not None:
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+                # ax = fig.add_subplot(121)
+                # ax.imshow(im, cmap="gray")
+                # ax = fig.add_subplot(122)
+                # ax.imshow(im_ph, cmap="gray")
+                # plt.show()
 
             self.all_images[idx,:] = np.array(im).astype(np.float16)
             self.all_labels[idx,:] = np.int64(np.array(label))
+
+            # if idx >= 100:
+            #     break
 
         if self.train_bool:
             self.counts = self.__compute_class_probability()

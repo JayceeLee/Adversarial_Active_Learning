@@ -17,7 +17,7 @@ file_path = os.path.dirname(os.path.realpath(__file__))
 sys.path.append("%s/.." % file_path)
 
 from utils.utils import make_D_label, adjust_learning_rate
-from utils.utils import rescale_image, convt_array_to_PIL, loss_calc
+from utils.utils import rescale_image, convt_array_to_PIL
 from utils.metrics import Performance_Metrics, compute_mean_iou, evaluate_segmentation
 
 INPUT_CHANNELS = 3
@@ -36,6 +36,7 @@ def validate(
     writer,
     val_loss,
     val_iou,
+    data_type="target",
 ):
     '''
     Pytorch model validation module
@@ -54,11 +55,11 @@ def validate(
     disc_patch.eval()
     disc_pixel.eval()
 
-    interp = torch.nn.Upsample(
-        size=(args.image_size[1], args.image_size[0]),
-        mode='bilinear',
-        align_corners=False,
-    )
+    # interp = torch.nn.Upsample(
+    #     size=(args.image_size[1], args.image_size[0]),
+    #     mode='bilinear',
+    #     align_corners=False,
+    # )
 
     loss_f = 0.
     avg_iou = 0.
@@ -73,46 +74,68 @@ def validate(
 
         with torch.set_grad_enabled(False):
             prediction = model(image)
-            prediction_interp = interp(prediction)
+            # prediction_interp = interp(prediction)
 
-        loss = seg_loss(prediction_interp, label)
+        loss = seg_loss(prediction, label)
         loss_f += loss.item()
 
-        pred_img = prediction_interp.argmax(dim=1, keepdim=True)
+        pred_img = prediction.argmax(dim=1, keepdim=True)
         flat_pred = pred_img.detach().cpu().numpy().flatten()
         flat_gt = label.detach().cpu().numpy().flatten()
         miou, _ = compute_mean_iou(flat_pred=flat_pred, flat_label=flat_gt)
         avg_iou += miou
 
-        if args.tensorboard and (writer != None) and (random_batch_idx == batch_idx):
-            filename = os.path.join(args.exp_dir, "trainiter_{}.png".format(i_iter))
+        if args.tensorboard and (writer != None) and \
+                (random_batch_idx == batch_idx) and (data_type == "target"):
+            filename = os.path.join(args.exp_dir, "Target_pred_trainiter_{}.png".format(i_iter))
             pred_img = pred_img.float()
             gen_img = vutils.make_grid(pred_img, padding=2, normalize=True)
-            writer.add_image('Val/Predictions', gen_img, i_iter+batch_idx)
+            writer.add_image('Val/Target_Predictions', gen_img, i_iter+batch_idx)
             vutils.save_image(gen_img, filename)
+
+            filename = os.path.join(args.exp_dir, "Target_img_trainiter_{}.png".format(i_iter))
+            target_img = image.float()
+            gen_target_img = vutils.make_grid(target_img, padding=2, normalize=True)
+            vutils.save_image(gen_target_img, filename)
 
     loss_f /= float(val_loader.__len__())
     avg_iou /= float(val_loader.__len__())
-    logger.info("Epoch #{}\t Val Loss: {:.3f}\t Val mIoU: {:.3f}".format(
-        epoch, loss_f, avg_iou))
+
+    if data_type == "target":
+        logger.info("Epoch #{}\t Target_Val Loss: {:.3f}\t Target_Val mIoU: {:.3f}".format(
+            epoch, loss_f, avg_iou))
+    elif data_type == "source":
+        logger.info("Epoch #{}\t Source_Val Loss: {:.3f}\t Source_Val mIoU: {:.3f}".format(
+            epoch, loss_f, avg_iou))
 
     new_val_loss = loss_f
     new_miou = avg_iou
 
-    if new_val_loss < val_loss:
+    if new_val_loss < val_loss and (data_type == "target"):
         print(val_loss, '--->', new_val_loss)
         logger.info('saving checkpoint ....')
         torch.save(model.state_dict(), os.path.join(args.exp_dir, "model_val_best_loss.pth"))
-        torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "Dscalar_best_loss.pth"))
-        torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "Dpatch_best_loss.pth"))
-        torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "Dpixel_best_loss.pth"))
-    if new_miou > val_iou:
+        torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "Dscalar_val_best_loss.pth"))
+        torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "Dpatch_val_best_loss.pth"))
+        torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "Dpixel_val_best_loss.pth"))
+        # elif data_type == "source":
+        #     torch.save(model.state_dict(), os.path.join(args.exp_dir, "source_model_best.pth"))
+        #     torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "source_Dscalar_best.pth"))
+        #     torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "source_Dpatch_best.pth"))
+        #     torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "source_Dpixel_best.pth"))
+
+    if new_miou > val_iou and (data_type == "target"):
         print(val_iou, '--->', new_miou)
         logger.info('saving checkpoint ....')
         torch.save(model.state_dict(), os.path.join(args.exp_dir, "model_val_best_miou.pth"))
-        torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "Dscalar_best_miou.pth"))
-        torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "Dpatch_best_miou.pth"))
-        torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "Dpixel_best_miou.pth"))
+        torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "Dscalar_val_best_miou.pth"))
+        torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "Dpatch_val_best_miou.pth"))
+        torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "Dpixel_val_best_miou.pth"))
+        # elif data_type == "source":
+        #     torch.save(model.state_dict(), os.path.join(args.exp_dir, "source_model_best_miou.pth"))
+        #     torch.save(disc_scalar.state_dict(), os.path.join(args.exp_dir, "source_Dscalar_best_miou.pth"))
+        #     torch.save(disc_patch.state_dict(), os.path.join(args.exp_dir, "source_Dpatch_best_miou.pth"))
+        #     torch.save(disc_pixel.state_dict(), os.path.join(args.exp_dir, "source_Dpixel_best_miou.pth"))
 
     return new_val_loss, new_miou
 
@@ -132,11 +155,11 @@ def run_testing(
     '''
     model.eval()
 
-    interp = torch.nn.Upsample(
-        size=(args.image_size[1], args.image_size[0]),
-        mode='bilinear',
-        align_corners=False,
-    )
+    # interp = torch.nn.Upsample(
+    #     size=(args.image_size[1], args.image_size[0]),
+    #     mode='bilinear',
+    #     align_corners=False,
+    # )
 
     ## Compute Metrics:
     Global_Accuracy=[]; Class_Accuracy=[]; Precision=[]; Recall=[]; F1=[]; IOU=[];IOU_list=[]; iou_all=[]
@@ -160,10 +183,10 @@ def run_testing(
 
         with torch.set_grad_enabled(False):
             prediction = model(image)
-            prediction_interp = interp(prediction)
+            # prediction_interp = interp(prediction)
 
         label = label.detach().cpu().numpy()
-        pred = np.argmax(prediction_interp.detach().cpu().numpy(), axis=1)
+        pred = np.argmax(prediction.detach().cpu().numpy(), axis=1)
 
         for idx in np.arange(pred.shape[0]):
             ga, ca, prec, rec, f1, iou, iou_list = evaluate_segmentation(
@@ -215,12 +238,14 @@ def run_training(
     val_miou = []
     val_miou_f = float("-inf")
     loss_seg_min = float("inf")
+    source_loss_eval, source_miou_eval = float("inf"), float("-inf")
+    source_loss, source_miou = [], []
 
-    interp = torch.nn.Upsample(
-        size=(args.image_size[1], args.image_size[0]),
-        mode='bilinear',
-        align_corners=False,
-    )
+    # interp = torch.nn.Upsample(
+    #     size=(args.image_size[1], args.image_size[0]),
+    #     mode='bilinear',
+    #     align_corners=False,
+    # )
 
     for i_iter in range(args.total_iterations):
         loss_seg_source_value = 0
@@ -468,6 +493,7 @@ def run_training(
                 writer=writer,
                 val_loss=val_loss_f,
                 val_iou=val_miou_f,
+                data_type="target",
             )
 
             val_loss.append(val_loss_f)
@@ -476,10 +502,10 @@ def run_training(
             val_miou_f = np.max(np.array(val_miou))
 
             if args.tensorboard and (writer != None):
-                writer.add_scalar('Val/Cross_Entropy_Target',
+                writer.add_scalar('Val/Target_Cross_Entropy',
                                   val_loss_f,
                                   i_iter)
-                writer.add_scalar('Train/mIoU_Target',
+                writer.add_scalar('Val/Target_mIoU',
                                   val_miou_f,
                                   i_iter)
 
@@ -499,6 +525,36 @@ def run_training(
                     os.path.join(args.exp_dir, "Dpixel_train_best_loss.pth")
                 )
 
+        if i_iter % args.iter_source_to_eval == 0:
+            source_loss_eval, source_miou_eval = validate(
+                i_iter=i_iter,
+                val_loader=val_loader,
+                model=model_seg,
+                disc_scalar=disc_scalar,
+                disc_patch=disc_patch,
+                disc_pixel=disc_pixel,
+                epoch=current_epoch,
+                args=args,
+                logger=logger,
+                writer=writer,
+                val_loss=source_loss_eval,
+                val_iou=source_miou_eval,
+                data_type="source",
+            )
+
+            if args.tensorboard and (writer != None):
+                writer.add_scalar('Train/Source_Cross_Entropy',
+                                  source_loss_eval,
+                                  i_iter)
+                writer.add_scalar('Train/Source_mIoU',
+                                  source_miou_eval,
+                                  i_iter)
+
+            source_loss.append(source_loss_eval)
+            source_loss_eval = np.min(np.array(source_loss))
+            source_miou.append(source_miou_eval)
+            source_miou_eval = np.max(np.array(source_miou))
+
     current_epoch = int(args.total_iterations * args.batch_size / args.total_source)
     val_loss_f, val_miou_f = validate(
         i_iter=1000000000,
@@ -513,6 +569,7 @@ def run_training(
         writer=writer,
         val_loss=val_loss_f,
         val_iou=val_miou_f,
+        data_type="target",
     )
     val_loss.append(val_loss_f)
     val_miou.append(val_miou_f)
