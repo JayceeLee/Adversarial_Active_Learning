@@ -99,26 +99,25 @@ def main(args):
     )
 
     print("Evaluating ...................")
-    pm = run_testing(
+    miou_all, iou_all = run_testing(
         dataset=testdata,
         test_loader=test_loader,
         model=model_seg,
         args=args,
     )
 
-    print('Global Mean Accuracy: {:.3f}'.format(np.array(pm.GA).mean()))
-    print('Mean IOU: {:.3f}'.format(np.array(pm.IOU).mean()))
-    print('Mean Recall: {:.3f}'.format(np.array(pm.Recall).mean()))
-    print('Mean Precision: {:.3f}'.format(np.array(pm.Precision).mean()))
+    # print('Global Mean Accuracy: {:.3f}'.format(np.array(pm.GA).mean()))
+    # print('Mean IOU: {:.3f}'.format(np.array(pm.IOU).mean()))
+    # print('Mean Recall: {:.3f}'.format(np.array(pm.Recall).mean()))
+    # print('Mean Precision: {:.3f}'.format(np.array(pm.Precision).mean()))
     # print('Mean F1: {:.3f}'.format(np.array(pm.F1).mean()))()
 
-    IOU_ALL = pm.Iou_all
-    print(IOU_ALL[0])
+    print('Mean IOU: {:.3f}'.format(miou_all.mean()))
     print("Back: {:.4f}, Sclera: {:.4f}, Iris: {:.4f}, Pupil: {:.4f}".format(
-        np.mean(IOU_ALL[:, 0]),
-        np.mean(IOU_ALL[:, 1]),
-        np.mean(IOU_ALL[:, 2]),
-        np.mean(IOU_ALL[:, 3]),
+        iou_all[:, 0].mean(),
+        iou_all[:, 1].mean(),
+        iou_all[:, 2].mean(),
+        iou_all[:, 3].mean(),
     ))
 
 if __name__ == "__main__":

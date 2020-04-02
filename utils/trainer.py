@@ -189,21 +189,8 @@ def run_testing(
     '''
     model.eval()
 
-    ## Compute Metrics:
-    Global_Accuracy=[];
-    Class_Accuracy=[];
-    Precision=[]; Recall=[]; F1=[];
-    IOU=[];IOU_list=[]; iou_all=[]
-    pm_orig = Performance_Metrics(
-        Global_Accuracy,
-        Class_Accuracy,
-        Precision,
-        Recall,
-        F1,
-        IOU,
-        IOU_list,
-        iou_all,
-    )
+    miou_all = np.zeros(test_loader.__len__())
+    iou_all = np.zeros((test_loader.__len__(), 4))
 
     for batch_idx, data in tqdm.tqdm(enumerate(test_loader), total=test_loader.__len__()):
         image, label = data
@@ -219,28 +206,21 @@ def run_testing(
         label = label.detach().cpu().numpy()
         pred = np.argmax(prediction.detach().cpu().numpy(), axis=1)
 
-        for idx in np.arange(pred.shape[0]):
-            ga, ca, prec, rec, f1, iou, iou_list = evaluate_segmentation(
-                pred[idx, :],
-                label[idx, :],
-                NUM_CLASSES,
-            )
-            pm_orig.GA.append(ga)
-            pm_orig.CA.append(ca)
-            pm_orig.Precision.append(prec)
-            pm_orig.Recall.append(rec)
-            pm_orig.F1.append(f1)
-            pm_orig.IOU.append(iou)
-            pm_orig.IOU_list.append(iou_list)
+        flat_pred = pred[0, :].flatten()
+        flat_label = label[0, :].flatten()
+        miou, iou_classes = compute_mean_iou(flat_pred=flat_pred, flat_label=flat_label)
 
-        pred = pred[0, :, :]
-        pred = rescale_image(pred)
-        pred = convt_array_to_PIL(pred)
-        filename = ntpath.basename(dataset.train_data_list[batch_idx])
-        filename = os.path.join(args.exp_dir, filename)
-        pred.save(filename)
+        iou_all[batch_idx, :] = iou_classes[:]
+        miou_all[batch_idx] = miou
 
-    return pm_orig
+        # pred = pred[0, :, :]
+        # pred = rescale_image(pred)
+        # pred = convt_array_to_PIL(pred)
+        # filename = ntpath.basename(dataset.train_data_list[batch_idx])
+        # filename = os.path.join(args.exp_dir, filename)
+        # pred.save(filename)
+
+    return miou_all, iou_all
 
 def run_training(
     trainloader_source,

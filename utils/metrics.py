@@ -49,7 +49,7 @@ def compute_class_accuracies(flat_pred, flat_label, num_classes):
 
     return accuracies
 
-def compute_mean_iou(flat_pred, flat_label):
+def compute_mean_iou(flat_pred, flat_label, num_classes=4):
     '''
     compute mean intersection over union (IOU) over all classes
     :param flat_pred: flattened prediction matrix
@@ -59,8 +59,10 @@ def compute_mean_iou(flat_pred, flat_label):
     unique_labels = np.unique(flat_label)
     num_unique_labels = len(unique_labels)
 
-    Intersect = np.zeros(num_unique_labels)
-    Union = np.zeros(num_unique_labels)
+    # Intersect = np.zeros(num_unique_labels)
+    # Union = np.zeros(num_unique_labels)
+    Intersect = np.zeros(num_classes)
+    Union = np.zeros(num_classes)
 
     for index, val in enumerate(unique_labels):
         pred_i = flat_pred == val
@@ -68,6 +70,10 @@ def compute_mean_iou(flat_pred, flat_label):
 
         Intersect[index] = float(np.sum(np.logical_and(label_i, pred_i)))
         Union[index] = float(np.sum(np.logical_or(label_i, pred_i)))
+
+    if num_unique_labels < num_classes:
+        Union[3] = 100
+        Intersect[3] = 100
 
     mean_iou = np.mean(Intersect / Union)
     return mean_iou, Intersect / Union
