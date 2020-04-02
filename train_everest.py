@@ -6,6 +6,8 @@ import pickle
 import itertools
 
 from dataloaders.eye.eyeDataset import OpenEDSDataset_withLabels, EverestDataset
+from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
+
 from utils.metrics import compute_mean_iou
 from utils.model_utils import load_models
 from utils.utils import make_logger, adjust_learning_rate
@@ -91,6 +93,9 @@ def main(args):
             dual_transforms.Scale(args.image_size[0]),
         ]
     )
+
+    photo_transformer = PhotometricTransform(photometric_transform_config)
+
     train_target_data = EverestDataset(
         root=args.source_root,
         image_size=args.image_size,

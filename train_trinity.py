@@ -6,7 +6,9 @@ import pickle
 import itertools
 
 from dataloaders.eye.eyeDataset import OpenEDSDataset_withLabels, EverestDataset
-from utils.trainer import run_testing, validate_baseline
+from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
+
+from utils.trainer import run_testing, validate_baseline, get_miou
 from utils.model_utils import load_models
 from utils.utils import make_logger, adjust_learning_rate
 from utils import dual_transforms
@@ -30,7 +32,7 @@ def parse_arguments():
                         default="/home/yirus/Datasets/Active_Learning/everest",
                         help="data directory of Source dataset", )
     parser.add_argument("--target_root", type=str,
-                    default="/home/yirus/Datasets/Active_Learning/SS_Data_Cropped250x400",
+                    default="/home/yirus/Datasets/Active_Learning/trinity",
                       help="data directory of Target dataset",)
 
     parser.add_argument("--nclass",type=int, default=4, help="#classes")
@@ -51,7 +53,7 @@ def parse_arguments():
                         help='buffer size for discriminator')
     parser.add_argument('--lambda_seg_source', type=float, default=1.0,
                         help='hyperparams for seg source')
-    parser.add_argument('--lambda_seg_target', type=float, default=2.0,
+    parser.add_argument('--lambda_seg_target', type=float, default=1.0,
                         help='hyperparams for seg target')
     parser.add_argument('--lambda_adv', type=float, default=0.001,
                         help='hyperparams for adv of target')
@@ -91,20 +93,16 @@ def main(args):
             dual_transforms.Scale(args.image_size[0]),
         ]
     )
+    photo_transformer = PhotometricTransform(photometric_transform_config)
+
     train_target_data = OpenEDSDataset_withLabels(
         root=os.path.join(args.target_root, "train"),
         image_size=args.image_size,
-        data_to_train="",
-        transforms=transforms_target,
-        train_bool=False,
+        data_to_train="dataloaders/eye/trinity_train_200.pkl",
+        shape_transforms=transforms_target,
+        photo_transforms=photo_transformer,
+        train_bool=True,
     )
-
-    # train_target_data = EverestDataset(
-    #     root=args.source_root,
-    #     image_size=args.image_size,
-    #     transforms=None,
-    #     train_bool=False,
-    # )
 
     args.tot_source = 11764
     args.total_iterations = args.num_epochs * 11764 // args.batch_size
@@ -117,11 +115,19 @@ def main(args):
         root=os.path.join(args.target_root, "validation"),
         image_size=args.image_size,
         data_to_train="",
-        transforms=transforms_target,
+        shape_transforms=transforms_target,
+        photo_transforms=None,
         train_bool=False,
     )
 
     train_loader = torch.utils.data.DataLoader(
+        train_target_data,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers,
+        pin_memory=True,
+    )
+    traineval_target_loader = torch.utils.data.DataLoader(
         train_target_data,
         batch_size=args.batch_size,
         shuffle=True,
@@ -148,12 +154,8 @@ def main(args):
     )
     optimizer_seg.zero_grad()
 
-    seg_loss_target = torch.nn.CrossEntropyLoss().to(device)
-    # interp = torch.nn.Upsample(
-    #     size=(args.image_size[1], args.image_size[0]),
-    #     mode='bilinear',
-    #     align_corners=False,
-    # )
+    class_weight_target = 1.0 / train_target_data.get_class_probability().to(device)
+    seg_loss_target = torch.nn.CrossEntropyLoss(weight=class_weight_target).to(device)
 
     trainloader_iter = enumerate(train_loader)
 
@@ -161,6 +163,8 @@ def main(args):
     val_loss_f = float("inf")
     val_miou_f = float("-inf")
     loss_seg_min = float("inf")
+    global_max_miou = float("-inf")
+    target_train_miou = []
 
     for i_iter in range(args.total_iterations):
         loss_seg_value = 0
@@ -186,7 +190,6 @@ def main(args):
         labels = Variable(labels.long()).to(args.device)
 
         pred = model_seg(images)
-        # pred_interp = interp(pred)
         loss_seg = seg_loss_target(pred, labels)
 
         current_loss_seg = loss_seg.item()
@@ -228,6 +231,21 @@ def main(args):
                                   val_miou_f,
                                   i_iter)
 
+            cur_target_train_miou = get_miou(
+                dataloader=traineval_target_loader,
+                model=model_seg,
+                global_max_miou=global_max_miou,
+                args=args,
+            )
+
+            if args.tensorboard and (writer != None):
+                writer.add_scalar('Train/Target_mIoU',
+                                  cur_target_train_miou,
+                                  i_iter)
+
+            target_train_miou.append(cur_target_train_miou)
+            global_max_miou = np.max(np.array(target_train_miou))
+
         is_better_ss = current_loss_seg < loss_seg_min
         if is_better_ss:
             loss_seg_min = current_loss_seg
@@ -242,7 +260,7 @@ def main(args):
         writer.close()
 
     with open("%s/train_performance.pkl" % args.exp_dir, "wb") as f:
-        pickle.dump([val_loss, val_miou], f)
+        pickle.dump([val_loss, val_miou, target_train_miou], f)
     logger.info("==========================================")
     logger.info("Evaluating on test data ...")
 
@@ -250,7 +268,8 @@ def main(args):
         root=os.path.join(args.target_root, "test"),
         image_size=args.image_size,
         data_to_train="",
-        transforms=transforms_target,
+        shape_transforms=transforms_target,
+        photo_transforms=None,
         train_bool=False,
     )
     test_loader = torch.utils.data.DataLoader(
