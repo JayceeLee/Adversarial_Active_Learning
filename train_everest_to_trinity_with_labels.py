@@ -8,7 +8,7 @@ import itertools
 from dataloaders.eye.eyeDataset import OpenEDSDataset_withoutLabels, OpenEDSDataset_withLabels, EverestDataset
 from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
 
-from utils.trainer import run_training, run_testing
+from utils.trainer import run_training_SDA, run_testing
 from utils.image_pool import ImagePool
 from utils.model_utils import load_models
 from utils.utils import make_logger
@@ -53,7 +53,7 @@ def parse_arguments():
                         help='buffer size for discriminator')
     parser.add_argument('--lambda_seg_source', type=float, default=1.0,
                         help='hyperparams for seg source')
-    parser.add_argument('--lambda_seg_target', type=float, default=2.0,
+    parser.add_argument('--lambda_seg_target', type=float, default=1.0,
                         help='hyperparams for seg target')
     parser.add_argument('--lambda_adv', type=float, default=0.001,
                         help='hyperparams for adv of target')
@@ -124,8 +124,8 @@ def main(args):
         image_size=args.image_size,
         data_to_train="dataloaders/eye/trinity_train_200.pkl",
         shape_transforms=transforms_shape_target,
-        photo_transforms=None,
-        train_bool=False,
+        photo_transforms=photo_transformer,
+        train_bool=True,
     )
 
     args.tot_source = source_data.__len__()
@@ -144,7 +144,7 @@ def main(args):
         photo_transforms=None,
         train_bool=False,
     )
-    # class_weight_source = 1.0 / source_data.get_class_probability().to(device)
+    class_weight_target = 1.0 / target_data.get_class_probability().to(device)
 
     source_loader = torch.utils.data.DataLoader(
         source_data,
@@ -154,6 +154,13 @@ def main(args):
         pin_memory=True,
     )
     target_loader = torch.utils.data.DataLoader(
+        target_data,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers,
+        pin_memory=True,
+    )
+    traineval_target_loader = torch.utils.data.DataLoader(
         target_data,
         batch_size=args.batch_size,
         shuffle=True,
@@ -198,6 +205,7 @@ def main(args):
     optimizer_disc.zero_grad()
 
     seg_loss_source = torch.nn.CrossEntropyLoss().to(device)
+    seg_loss_target = torch.nn.CrossEntropyLoss(weight=class_weight_target).to(device)
     gan_loss = torch.nn.BCEWithLogitsLoss().to(device)
 
     history_true_mask = ImagePool(args.pool_size)
@@ -206,11 +214,12 @@ def main(args):
     trainloader_iter = enumerate(source_loader)
     targetloader_iter = enumerate(target_loader)
 
-    val_loss, val_miou = run_training(
+    val_loss, val_miou, target_train_miou = run_training_SDA(
         trainloader_source=source_loader,
         trainloader_target=target_loader,
         trainloader_iter=trainloader_iter,
         targetloader_iter=targetloader_iter,
+        traineval_target_loader=traineval_target_loader,
         val_loader=val_loader,
         model_seg=model_seg,
         disc_scalar=disc_scalar,
@@ -218,6 +227,7 @@ def main(args):
         disc_pixel=disc_pixel,
         gan_loss=gan_loss,
         seg_loss_source=seg_loss_source,
+        seg_loss_target=seg_loss_target,
         optimizer_seg=optimizer_seg,
         optimizer_disc=optimizer_disc,
         history_pool_true=history_true_mask,
@@ -228,7 +238,7 @@ def main(args):
     )
 
     with open("%s/train_performance.pkl" % args.exp_dir, "wb") as f:
-        pickle.dump([val_loss, val_miou], f)
+        pickle.dump([val_loss, val_miou, target_train_miou], f)
 
     logger.info("==========================================")
     logger.info("Evaluating on test data ...")
