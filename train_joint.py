@@ -27,7 +27,7 @@ def parse_arguments():
     parser.add_argument('name', type=str,
                         help="Name of the model for storing and loading purposes.")
     parser.add_argument("--source_root", type=str,
-                        default="/home/yirus/Datasets/Active_Learning/everest",
+                        default="/home/yirus/Datasets/Active_Learning/Unity",
                         help="data directory of Source dataset", )
     parser.add_argument("--target_root", type=str,
                     default="/home/yirus/Datasets/Active_Learning/trinity",
@@ -195,7 +195,7 @@ def main(args):
             loss_seg_value,)
         )
 
-        current_epoch = i_iter * args.batch_size // args.tot_source
+        current_epoch = i_iter * args.batch_size // args.tot_data
         if i_iter % args.iters_to_eval == 0:
             val_loss_f, val_miou_f = validate_baseline(
                 i_iter=i_iter,

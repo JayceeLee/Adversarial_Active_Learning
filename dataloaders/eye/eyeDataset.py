@@ -499,8 +499,8 @@ class JointDataset(torch.utils.data.Dataset):
         self.photo_transforms = photo_transforms
         self.train_bool = train_bool
 
-        self.img_list_source = glob.glob(os.path.join(self.root, "images")+"/*.png")
-        self.label_list_source = glob.glob(os.path.join(self.root, "masks") + "/*.npy")
+        self.img_list_source = glob.glob(os.path.join(self.root_source, "images")+"/*.png")
+        self.label_list_source = glob.glob(os.path.join(self.root_source, "masks") + "/*.npy")
 
         with open(self.data_to_train, "rb") as f:
             self.train_data_list = pickle.load(f)
@@ -552,7 +552,7 @@ class JointDataset(torch.utils.data.Dataset):
             self.counts = self.__compute_class_probability()
 
     def __len__(self):
-        return len(self.img_list)
+        return self.all_images.shape[0]
 
     def __getitem__(self, index):
         im = self.all_images[index]
