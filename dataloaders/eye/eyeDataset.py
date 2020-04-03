@@ -479,3 +479,109 @@ class UnityDataset(torch.utils.data.Dataset):
         values = np.array(list(self.counts.values()))
         p_values = values / np.sum(values)
         return torch.Tensor(p_values)
+
+class JointDataset(torch.utils.data.Dataset):
+    """
+    Everest dataset
+    """
+    def __init__(self,
+                 root_source,
+                 image_size,
+                 data_to_train,
+                 shape_transforms=None,
+                 photo_transforms=None,
+                 train_bool=False,
+        ):
+        self.root_source = root_source
+        self.data_to_train = data_to_train
+        self.image_size = image_size
+        self.shape_transforms = shape_transforms
+        self.photo_transforms = photo_transforms
+        self.train_bool = train_bool
+
+        self.img_list_source = glob.glob(os.path.join(self.root, "images")+"/*.png")
+        self.label_list_source = glob.glob(os.path.join(self.root, "masks") + "/*.npy")
+
+        with open(self.data_to_train, "rb") as f:
+            self.train_data_list = pickle.load(f)
+
+        tot_data = len(self.img_list_source) + len(self.train_data_list)
+
+        self.all_images = np.empty((tot_data, self.image_size[0], self.image_size[1]),
+                                   dtype=np.float32)
+        self.all_labels = np.empty((tot_data, self.image_size[0], self.image_size[1]))
+
+        for idx in range(len(self.img_list_source)):
+            im = cv2.imread(self.img_list_source[idx], cv2.IMREAD_GRAYSCALE)
+            lb_filename = self.img_list_source[idx].replace("/images/", "/masks/").replace(".png", ".npy")
+            label = np.load(lb_filename)
+            im = convt_array_to_PIL(im)
+
+            if self.shape_transforms is not None:
+                label = Image.fromarray(label)
+                im, label = self.shape_transforms(im, label)
+
+            if self.photo_transforms is not None:
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+            self.all_images[idx,:] = np.array(im).astype(np.float16)
+            self.all_labels[idx,:] = np.int64(np.array(label))
+
+        for idx in range(len(self.train_data_list)):
+            with Image.open(self.train_data_list[idx]) as f:
+                im = f.convert("L").copy()
+            lb_filename = self.train_data_list[idx].replace("/images/", "/masks/").replace(".png", ".npy")
+            lb = np.load(lb_filename)
+            if self.shape_transforms is not None:
+                lb = Image.fromarray(lb)
+                im, lb = self.shape_transforms(im, lb)
+
+            if self.photo_transforms is not None:
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+            self.all_images[len(self.img_list_source)+idx, :] = np.array(im).astype(np.float16)
+            self.all_labels[len(self.img_list_source)+idx, :] = np.int64(np.array(lb))
+
+        print("Done loading {} ..............".format(self.all_images.shape[0]))
+
+        if self.train_bool:
+            self.counts = self.__compute_class_probability()
+
+    def __len__(self):
+        return len(self.img_list)
+
+    def __getitem__(self, index):
+        im = self.all_images[index]
+        label = self.all_labels[index]
+        im = im[np.newaxis, :, :] / 255.0
+        return np.concatenate((im, im, im), axis=0), label
+
+    def __compute_class_probability(self):
+        counts = dict((i, 0) for i in range(NUM_CLASSES))
+        sampleslist = np.arange(self.__len__())
+        for i in sampleslist:
+            img, label = self.__getitem__(i)
+            if label is not -1:
+                for j in range(NUM_CLASSES):
+                    counts[j] += np.sum(label == j)
+        return counts
+
+    def __compute_image_mean(self):
+        sampleslist = np.arange(self.__len__())
+        for i in sampleslist:
+            img, target = self.__getitem__(i)
+            if i==0:
+                img_mean=img
+            else:
+                img_mean+=img
+        return 1.0*img_mean/self.__len__()
+
+
+    def get_class_probability(self):
+        values = np.array(list(self.counts.values()))
+        p_values = values / np.sum(values)
+        return torch.Tensor(p_values)
