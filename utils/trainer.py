@@ -861,7 +861,7 @@ def run_training_single_D(
               'loss_seg_source = {2:.3f} '
               'loss_adv = {3:.3f} '
               'loss_semi = {4:.4f} '
-              'loss_D_all = {4:.3f} '.format(
+              'loss_D_all = {5:.3f} '.format(
                 i_iter, args.total_iterations,
                 loss_seg_source_value,
                 loss_adv_value,
