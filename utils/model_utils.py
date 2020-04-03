@@ -59,6 +59,13 @@ def load_models(mode, device, args):
             input_size=args.image_size,
         )
         disc_pixel = init_net(disc_pixel, device, init_type="xavier")
+    elif mode == "single_discriminator":
+        disc_pixel = PixelGAN(
+            num_classes=args.nclass,
+            input_size=args.image_size,
+        )
+        disc_pixel = init_net(disc_pixel, device, init_type="xavier")
+        return disc_pixel
     else:
         raise ValueError("Invalid mode {}!".format(mode))
 

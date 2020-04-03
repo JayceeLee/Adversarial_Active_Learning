@@ -70,6 +70,14 @@ def get_semi_gt(D_outs, pred, pred_softmax, threshold, device):
     else:
         return 0, 0, count
 
+def get_mean_threshold(D_outs, device):
+    batch_size = D_outs.shape[0]
+
+    mean_threholds = torch.Tensor(batch_size, D_outs.shape[1], D_outs.shape[2], D_outs.shape[3])
+    for b in range(batch_size):
+        mean_threholds[b] = D_outs[b].mean()
+    return mean_threholds.to(device)
+
 def one_hot(label, device, num_classes=4):
     label = label.data.cpu().numpy()
     one_hot = np.zeros((label.shape[0], num_classes, label.shape[1], label.shape[2]), dtype=label.dtype)

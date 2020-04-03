@@ -44,10 +44,11 @@ def parse_arguments():
 
     parser.add_argument("--num_epochs", type=int, default=200, help="#epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="#data per batch")
-
     parser.add_argument('--image_size', type=list, default=[224, 224],
                         help='image_size scalar (currently support square images)')
 
+    parser.add_argument('--save_test', action='store_true', default=False,
+                        help='flag to save predictions of target')
     parser.add_argument('--tensorboard', action='store_true', default=False,
                         help='visulization with tensorboard')
     parser.add_argument('--checkpoint_seg', type=str, default=None,

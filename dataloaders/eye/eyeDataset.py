@@ -353,3 +353,129 @@ class EverestDataset(torch.utils.data.Dataset):
         values = np.array(list(self.counts.values()))
         p_values = values / np.sum(values)
         return torch.Tensor(p_values)
+
+class UnityDataset(torch.utils.data.Dataset):
+    """
+    Everest dataset
+    """
+    def __init__(self,
+                 root,
+                 image_size,
+                 shape_transforms=None,
+                 photo_transforms=None,
+                 train_bool=False,
+        ):
+        self.root = root
+        self.image_size = image_size
+        self.shape_transforms = shape_transforms
+        self.photo_transforms = photo_transforms
+        self.train_bool = train_bool
+
+        self.img_list = glob.glob(os.path.join(self.root, "images")+"/*.png")
+        self.label_list = glob.glob(os.path.join(self.root, "masks") + "/*.npy")
+
+        assert len(self.img_list) == len(self.label_list), \
+            "Unmatched #images = {} with #labels = {}!".format(
+                len(self.img_list),
+                len(self.label_list)
+            )
+
+        print("Unity: loading {} images and {} labels ........".format(
+            len(self.img_list), len(self.label_list))
+        )
+
+        self.all_images = np.empty(
+            (len(self.img_list), self.image_size[0], self.image_size[1]),
+            dtype=np.float32
+        )
+        self.all_labels = np.empty(
+            (len(self.label_list), self.image_size[0], self.image_size[1])
+        )
+
+        # fig = plt.figure()
+        for idx in range(len(self.img_list)):
+            # with Image.open(self.img_list[idx]) as f:
+            #     im = f.convert("L").copy()
+            im = cv2.imread(self.img_list[idx], cv2.IMREAD_GRAYSCALE)
+            lb_filename = self.img_list[idx].replace("/images/", "/masks/").replace(".png", ".npy")
+            label = np.load(lb_filename)
+
+            # im = cv2.resize(np.array(im), (self.image_size[0], self.image_size[1]), cv2.INTER_LINEAR)
+            # label = cv2.resize(label, (self.image_size[0], self.image_size[1]), cv2.INTER_NEAREST)
+            # ### resize into (400, 250) then pad into (400, 400) ###
+            # im = cv2.resize(np.array(im), (400, 250), cv2.INTER_LINEAR)
+            # label = cv2.resize(label, (400, 250), cv2.INTER_NEAREST)
+            # im = cv2.copyMakeBorder(im, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # label = cv2.copyMakeBorder(label, 75, 75, 0, 0, cv2.BORDER_CONSTANT)
+            # ### resize into (400, 250) then pad into (400, 400) ###
+            # im = rescale_image(im)
+
+            im = convt_array_to_PIL(im)
+
+            # fig = plt.figure()
+            if self.shape_transforms is not None:
+                label = Image.fromarray(label)
+                im, label = self.shape_transforms(im, label)
+
+            if self.photo_transforms is not None:
+                # ax = fig.add_subplot(131)
+                # ax.imshow(im, cmap="gray")
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+                # ax = fig.add_subplot(132)
+                # ax.imshow(im, cmap="gray")
+                # ax = fig.add_subplot(133)
+                # ax.imshow(label)
+                # plt.show()
+
+            self.all_images[idx,:] = np.array(im).astype(np.float16)
+            self.all_labels[idx,:] = np.int64(np.array(label))
+
+            # if idx >= 100:
+            #     break
+
+        if self.train_bool:
+            self.counts = self.__compute_class_probability()
+
+    def __len__(self):
+        return len(self.img_list)
+
+    def __getitem__(self, index):
+        im = self.all_images[index]
+        label = self.all_labels[index]
+        im = im[np.newaxis, :, :] / 255.0
+        return np.concatenate((im, im, im), axis=0), label
+        # return im, label
+        # if self.transforms is not None:
+        #     im_t, lb_t = self.transforms(im, label)
+        # else:
+        #     im_t, lb_t = im.copy(), label.copy()
+        # return np.expand_dims(im_t, axis=0), lb_t
+
+    def __compute_class_probability(self):
+        counts = dict((i, 0) for i in range(NUM_CLASSES))
+        sampleslist = np.arange(self.__len__())
+        for i in sampleslist:
+            img, label = self.__getitem__(i)
+            if label is not -1:
+                for j in range(NUM_CLASSES):
+                    counts[j] += np.sum(label == j)
+        return counts
+
+    def __compute_image_mean(self):
+        sampleslist = np.arange(self.__len__())
+        for i in sampleslist:
+            img, target = self.__getitem__(i)
+            if i==0:
+                img_mean=img
+            else:
+                img_mean+=img
+        return 1.0*img_mean/self.__len__()
+
+
+    def get_class_probability(self):
+        values = np.array(list(self.counts.values()))
+        p_values = values / np.sum(values)
+        return torch.Tensor(p_values)
