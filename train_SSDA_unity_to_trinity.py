@@ -33,6 +33,7 @@ def parse_arguments():
     parser.add_argument("--target_root", type=str,
                     default="/home/yirus/Datasets/Active_Learning/trinity",
                       help="data directory of Target dataset",)
+    parser.add_argument("--trinity_data_train_with_labels", type=str, help=".pkl storing selected files")
 
     parser.add_argument("--nclass",type=int, default=4, help="#classes")
     parser.add_argument("--lr_seg", type=float, default=0.001, help="lr for SS")
@@ -80,6 +81,8 @@ def main(args):
         os.makedirs(args.exp_dir)
     print("EXP PATH: {}".format(args.exp_dir))
 
+    assert args.trinity_data_train_with_labels != "", "Indicate trained data in Trinity!"
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.device = device
 
@@ -120,7 +123,7 @@ def main(args):
     target_data = OpenEDSDataset_withLabels(
         root=os.path.join(args.target_root, "train"),
         image_size=args.image_size,
-        data_to_train="dataloaders/eye/trinity_train_200.pkl",
+        data_to_train=args.trinity_data_train_with_labels,
         shape_transforms=transforms_shape_target,
         photo_transforms=photo_transformer,
         train_bool=True,
