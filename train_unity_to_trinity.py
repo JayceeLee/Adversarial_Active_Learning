@@ -64,6 +64,7 @@ def parse_arguments():
     parser.add_argument('--epoch_semi_start', type=int, default=0,
                         help='epoch for semi')
 
+    parser.add_argument("--save_test", action="store_true", default=False)
     parser.add_argument('--tensorboard', action='store_true', default=False,
                         help='visulization with tensorboard')
     parser.add_argument('--checkpoint_seg', type=str, default=None,

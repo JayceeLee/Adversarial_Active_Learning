@@ -58,6 +58,7 @@ def parse_arguments():
     parser.add_argument('--lambda_adv', type=float, default=0.001,
                         help='hyperparams for adv of target')
 
+    parser.add_argument("--save_test", action="store_true", default=False)
     parser.add_argument('--tensorboard', action='store_true', default=False,
                         help='visulization with tensorboard')
     parser.add_argument('--checkpoint_seg', type=str, default=None,
