@@ -8,7 +8,7 @@ import itertools
 from dataloaders.eye.eyeDataset import OpenEDSDataset_withoutLabels, OpenEDSDataset_withLabels, EverestDataset
 from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
 
-from utils.trainer import run_training_SDA, run_testing
+from utils.trainer import run_training_SSDA, run_testing
 from utils.image_pool import ImagePool
 from utils.model_utils import load_models
 from utils.utils import make_logger

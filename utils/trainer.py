@@ -976,20 +976,17 @@ def run_training_single_D(
 
     return val_loss, val_miou
 
-def run_training_SDA(
+def run_training_SSDA(
     trainloader_source,
     trainloader_target,
     trainloader_iter,
     targetloader_iter,
-    traineval_target_loader,
     val_loader,
     model_seg,
-    disc_scalar,
-    disc_patch,
-    disc_pixel,
+    model_disc,
     gan_loss,
     seg_loss_source,
-    seg_loss_target,
+    semi_loss_criterion,
     optimizer_seg,
     optimizer_disc,
     history_pool_true,
@@ -1000,28 +997,25 @@ def run_training_SDA(
 ):
     source_label = 0
     target_label = 1
+    semi_ratio = 0.
 
-    val_loss, val_miou = [], []
-    val_loss_f, val_miou_f = float("inf"), float("-inf")
+    val_loss = []
+    val_loss_f = float("inf")
+    val_miou = []
+    val_miou_f = float("-inf")
     loss_seg_min = float("inf")
     source_loss_eval, source_miou_eval = float("inf"), float("-inf")
     source_loss, source_miou = [], []
-    global_max_miou = float("-inf")
-    target_train_miou = []
 
     for i_iter in range(args.total_iterations):
         loss_seg_source_value = 0
         loss_seg_target_value = 0
         loss_adv_value = 0
         loss_D_value = 0
-        loss_D_scalar_value = 0
-        loss_D_patch_value = 0
-        loss_D_pixel_value = 0
+        loss_semi_value = 0
 
         model_seg.train()
-        disc_scalar.train()
-        disc_patch.train()
-        disc_pixel.train()
+        model_disc.train()
 
         optimizer_seg.zero_grad()
         optimizer_disc.zero_grad()
@@ -1045,11 +1039,7 @@ def run_training_SDA(
         #################################################
         ######### (1) train segmentation network ########
         #################################################
-        for param in disc_scalar.parameters():
-            param.requires_grad = False
-        for param in disc_patch.parameters():
-            param.requires_grad = False
-        for param in disc_pixel.parameters():
+        for param in model_disc.parameters():
             param.requires_grad = False
 
         try:
@@ -1066,8 +1056,8 @@ def run_training_SDA(
         pred_source_softmax = F.softmax(pred_source, dim=1)
         loss_seg_source = seg_loss_source(pred_source, labels)
 
-        # current_loss_seg = loss_seg_source.item()
-        loss_seg_source_value += loss_seg_source.item()
+        current_loss_seg = loss_seg_source.item()
+        loss_seg_source_value += current_loss_seg
 
         try:
             _, batch = next(targetloader_iter)
@@ -1081,127 +1071,87 @@ def run_training_SDA(
 
         pred_target = model_seg(images)
         pred_softmax_target = F.softmax(pred_target, dim=1)
-        loss_seg_target = seg_loss_target(pred_target, labels)
+        loss_seg_target = seg_loss_source(pred_target, labels)
 
-        current_loss_seg = loss_seg_target.item()
-        loss_seg_target_value += current_loss_seg
+        current_loss_seg += loss_seg_target.item()
+        loss_seg_target_value += loss_seg_target.item()
+
+        ### semi loss for DNet of target ###
+        if args.iter_semi_start > 0 and i_iter >= args.iter_semi_start:
+            D_out_semi = model_disc(pred_softmax_target)
+            mean_domain_threshold = get_mean_threshold(D_outs=D_out_semi, device=args.device)
+            semi_ignore_mask = (D_out_semi > mean_domain_threshold).squeeze(1)
+            semi_gt = torch.argmax(pred_softmax_target.data.cpu(), dim=1)
+            semi_gt[semi_ignore_mask] = 255
+
+            semi_ratio = 1.0 - float(semi_ignore_mask.sum().item()) / float(np.prod(semi_ignore_mask.shape))
+            if semi_ratio == 0.0:
+                loss_semi = None
+                loss_semi_value += 0
+            else:
+                semi_gt = torch.LongTensor(semi_gt).to(args.device)
+                loss_semi = semi_loss_criterion(pred_target, semi_gt)
+                loss_semi_value += loss_semi.item()
+        else:
+            loss_semi = None
 
         ### adversarial loss ###
-        D_out_scalar = disc_scalar(pred_softmax_target)
+        D_out_scalar = model_disc(pred_softmax_target)
         disc_label_scalar = make_D_label(
             input=D_out_scalar,
-            value=source_label,
-            device=args.device,
-            random=False,
-        )
-        D_out_patch = disc_patch(pred_softmax_target)
-        disc_label_patch = make_D_label(
-            input=D_out_patch,
-            value=source_label,
-            device=args.device,
-            random=False,
-        )
-        D_out_pixel = disc_pixel(pred_softmax_target)
-        disc_label_pixel = make_D_label(
-            input=D_out_pixel,
             value=source_label,
             device=args.device,
             random=False,
         )
 
         loss_adv_scalar = gan_loss(D_out_scalar, disc_label_scalar)
-        loss_adv_patch = gan_loss(D_out_patch, disc_label_patch)
-        loss_adv_pixel = gan_loss(D_out_pixel, disc_label_pixel)
-        loss_adv_value += loss_adv_scalar.item()+loss_adv_patch.item()+loss_adv_pixel.item()
+        loss_adv_value += loss_adv_scalar.item()
 
-        loss = args.lambda_seg_source * loss_seg_source + \
-               args.lambda_seg_target * loss_seg_target + \
-               args.lambda_adv * loss_adv_scalar + \
-               args.lambda_adv * loss_adv_patch + \
-               args.lambda_adv * loss_adv_pixel
+        if loss_semi is None:
+            loss = args.lambda_seg_source * loss_seg_source + \
+                   args.lambda_seg_target * loss_seg_target + \
+                   args.lambda_adv * loss_adv_scalar
+        else:
+            loss = args.lambda_seg_source * loss_seg_source + \
+                   args.lambda_seg_target * loss_seg_target + \
+                   args.lambda_adv * loss_adv_scalar + \
+                   args.lambda_semi * loss_semi
+
         loss.backward()
 
         #################################################
         ############# (2) train discriminator ###########
         #################################################
-        for param in disc_scalar.parameters():
-            param.requires_grad = True
-        for param in disc_patch.parameters():
-            param.requires_grad = True
-        for param in disc_pixel.parameters():
+        for param in model_disc.parameters():
             param.requires_grad = True
 
         ## train with source ##
         pred_source_softmax = pred_source_softmax.detach()
         pool_source = history_pool_true.query(pred_source_softmax)
-        D_out_scalar = disc_scalar(pool_source)
+        D_out_scalar = model_disc(pool_source)
         disc_label_scalar = make_D_label(
             input=D_out_scalar,
             value=source_label,
             device=args.device,
             random=True,
         )
-        D_out_patch = disc_patch(pool_source)
-        disc_label_patch = make_D_label(
-            input=D_out_patch,
-            value=source_label,
-            device=args.device,
-            random=True,
-        )
-        D_out_pixel = disc_pixel(pool_source)
-        disc_label_pixel = make_D_label(
-            input=D_out_pixel,
-            value=source_label,
-            device=args.device,
-            random=True,
-        )
-
-        loss_D_scalar = gan_loss(D_out_scalar, disc_label_scalar)
-        loss_D_patch = gan_loss(D_out_patch, disc_label_patch)
-        loss_D_pixel = gan_loss(D_out_pixel, disc_label_pixel)
-
-        loss_D_real = (loss_D_scalar+loss_D_patch+loss_D_pixel) * 0.5
+        loss_D_real = 0.5 * gan_loss(D_out_scalar, disc_label_scalar)
         loss_D_real.backward()
         loss_D_value += loss_D_real.item()
-        loss_D_scalar_value += 0.5*loss_D_scalar.item()
-        loss_D_patch_value += 0.5 * loss_D_patch.item()
-        loss_D_pixel_value += 0.5*loss_D_pixel.item()
 
         ## train with target ##
         pred_softmax_target = pred_softmax_target.detach()
         pool_target = history_pool_fake.query(pred_softmax_target)
-        D_out_scalar = disc_scalar(pool_target)
+        D_out_scalar = model_disc(pool_target)
         disc_label_scalar = make_D_label(
             input=D_out_scalar,
             value=target_label,
             device=args.device,
             random=True,
         )
-        D_out_patch = disc_patch(pool_target)
-        disc_label_patch = make_D_label(
-            input=D_out_patch,
-            value=target_label,
-            device=args.device,
-            random=True,
-        )
-        D_out_pixel = disc_pixel(pool_target)
-        disc_label_pixel = make_D_label(
-            input=D_out_pixel,
-            value=target_label,
-            device=args.device,
-            random=True,
-        )
-
-        loss_D_scalar = gan_loss(D_out_scalar, disc_label_scalar)
-        loss_D_patch = gan_loss(D_out_patch, disc_label_patch)
-        loss_D_pixel = gan_loss(D_out_pixel, disc_label_pixel)
-
-        loss_D_fake = (loss_D_scalar + loss_D_patch + loss_D_pixel) * 0.5
+        loss_D_fake = 0.5 * gan_loss(D_out_scalar, disc_label_scalar)
         loss_D_fake.backward()
         loss_D_value += loss_D_fake.item()
-        loss_D_scalar_value += 0.5*loss_D_scalar.item()
-        loss_D_patch_value += 0.5*loss_D_patch.item()
-        loss_D_pixel_value += 0.5*loss_D_pixel.item()
 
         optimizer_seg.step()
         optimizer_disc.step()
@@ -1210,18 +1160,16 @@ def run_training_SDA(
               'loss_seg_source = {2:.3f} '
               'loss_seg_target = {3:.3f} '
               'loss_adv = {4:.3f} '
-              'loss_D_all = {5:.3f} '
-              'loss_D_scalar = {6:.3f} '
-              'loss_D_patch = {7:.3f} '
-              'loss_D_pixel = {8:.3f} '.format(
+              'loss_semi = {5:.4f} '
+              'loss_D_all = {6:.3f} '
+              'semi_ratio = {7:.3f} '.format(
                 i_iter, args.total_iterations,
                 loss_seg_source_value,
                 loss_seg_target_value,
                 loss_adv_value,
+                loss_semi_value,
                 loss_D_value,
-                loss_D_scalar_value,
-                loss_D_patch_value,
-                loss_D_pixel_value,
+                semi_ratio,
             )
         )
 
@@ -1232,28 +1180,20 @@ def run_training_SDA(
             writer.add_scalar('Train/Adversarial_loss',
                               loss_adv_value,
                               i_iter)
+            writer.add_scalar('Train/Semi_loss',
+                              loss_semi_value,
+                              i_iter)
             writer.add_scalar('Train/Discriminator_all',
                               loss_D_value,
-                              i_iter)
-            writer.add_scalar('Train/Discriminator_scalar',
-                              loss_D_scalar_value,
-                              i_iter)
-            writer.add_scalar('Train/Discriminator_patch',
-                              loss_D_patch_value,
-                              i_iter)
-            writer.add_scalar('Train/Discriminator_pixel',
-                              loss_D_pixel_value,
                               i_iter)
 
         current_epoch = i_iter * args.batch_size // args.tot_source
         if i_iter % args.iters_to_eval == 0:
-            val_loss_f, val_miou_f = validate(
+            val_loss_f, val_miou_f = validate_singleD(
                 i_iter=i_iter,
                 val_loader=val_loader,
                 model=model_seg,
-                disc_scalar=disc_scalar,
-                disc_patch=disc_patch,
-                disc_pixel=disc_pixel,
+                model_disc=model_disc,
                 epoch=current_epoch,
                 args=args,
                 logger=logger,
@@ -1282,38 +1222,16 @@ def run_training_SDA(
                 torch.save(model_seg.state_dict(),
                     os.path.join(args.exp_dir, "model_train_best.pth")
                 )
-                torch.save(disc_scalar.state_dict(),
-                    os.path.join(args.exp_dir, "Dscalar_train_best_loss.pth")
+                torch.save(model_disc.state_dict(),
+                    os.path.join(args.exp_dir, "modelD_train_best_loss.pth")
                 )
-                torch.save(disc_patch.state_dict(),
-                    os.path.join(args.exp_dir, "Dpatch_train_best_loss.pth")
-                )
-                torch.save(disc_pixel.state_dict(),
-                    os.path.join(args.exp_dir, "Dpixel_train_best_loss.pth")
-                )
-
-            cur_target_train_miou = get_miou(
-                dataloader=traineval_target_loader,
-                model=model_seg,
-                global_max_miou=global_max_miou,
-                args=args,
-            )
-            if args.tensorboard and (writer != None):
-                writer.add_scalar('Train/Target_mIoU',
-                                  cur_target_train_miou,
-                                  i_iter)
-
-            target_train_miou.append(cur_target_train_miou)
-            global_max_miou = np.max(np.array(target_train_miou))
 
         if i_iter % args.iter_source_to_eval == 0:
-            source_loss_eval, source_miou_eval = validate(
+            source_loss_eval, source_miou_eval = validate_singleD(
                 i_iter=i_iter,
                 val_loader=val_loader,
                 model=model_seg,
-                disc_scalar=disc_scalar,
-                disc_patch=disc_patch,
-                disc_pixel=disc_pixel,
+                model_disc=model_disc,
                 epoch=current_epoch,
                 args=args,
                 logger=logger,
@@ -1337,13 +1255,11 @@ def run_training_SDA(
             source_miou_eval = np.max(np.array(source_miou))
 
     current_epoch = int(args.total_iterations * args.batch_size / args.total_source)
-    val_loss_f, val_miou_f = validate(
+    val_loss_f, val_miou_f = validate_singleD(
         i_iter=1000000000,
         val_loader=val_loader,
         model=model_seg,
-        disc_scalar=disc_scalar,
-        disc_patch=disc_patch,
-        disc_pixel=disc_pixel,
+        model_disc=model_disc,
         epoch=current_epoch,
         args=args,
         logger=logger,
@@ -1361,7 +1277,7 @@ def run_training_SDA(
     if args.tensorboard and (writer != None):
         writer.close()
 
-    return val_loss, val_miou, target_train_miou
+    return val_loss, val_miou
 
 
 def validate_baseline(
