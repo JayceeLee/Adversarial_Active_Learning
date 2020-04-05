@@ -126,7 +126,7 @@ def main(args):
         data_to_train=args.trinity_data_train_with_labels,
         shape_transforms=transforms_shape_target,
         photo_transforms=photo_transformer,
-        train_bool=True,
+        train_bool=False,
     )
 
     args.tot_source = source_data.__len__()
@@ -198,7 +198,7 @@ def main(args):
 
     seg_loss_source = torch.nn.CrossEntropyLoss().to(device)
     gan_loss = torch.nn.BCEWithLogitsLoss().to(device)
-    semi_loss = torch.nn.CrossEntropyLoss(ignore_index=255)
+    semi_loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
 
     history_true_mask = ImagePool(args.pool_size)
     history_fake_mask = ImagePool(args.pool_size)
