@@ -1,9 +1,19 @@
 import functools
+import os
+import random
+import numpy as np
 
 import torch
 import torch.nn as nn
 from torch.nn import init
 from torch.autograd import Variable
+
+seed = 1
+os.environ['PYTHONHASHSEED'] = str(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 
 class Identity(nn.Module):
     def forward(self, x):

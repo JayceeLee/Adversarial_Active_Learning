@@ -3,7 +3,7 @@ import os
 import argparse
 import numpy as np
 import pickle
-import itertools
+import random
 
 from dataloaders.eye.eyeDataset import OpenEDSDataset_withoutLabels, OpenEDSDataset_withLabels, UnityDataset
 from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
@@ -17,6 +17,13 @@ from utils import dual_transforms
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+
+seed = 1
+os.environ['PYTHONHASHSEED'] = str(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
