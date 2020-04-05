@@ -527,14 +527,14 @@ class UnityDataset(torch.utils.data.Dataset):
             self.all_images[idx,:] = np.array(im).astype(np.float16)
             self.all_labels[idx,:] = np.int64(np.array(label))
 
-            if idx >= 100:
-                break
+            # if idx >= 100:
+            #     break
 
         if self.train_bool:
             self.counts = self.__compute_class_probability()
 
     def __len__(self):
-        return 100 #len(self.img_list)
+        return len(self.img_list)
 
     def __getitem__(self, index):
         im = self.all_images[index]
