@@ -22,6 +22,100 @@ NUM_CLASSES = 4
 import torch
 import torch.utils.data
 
+class OpenEDSDataset_withRegionLabels(torch.utils.data.Dataset):
+    """
+    OpenEDS dataset
+    Note:for segmentation, target is numpy array of size (th, tw) with pixel
+    values representing the label index
+    :param root: Essential, path to data_root
+    :param data_to_train: .pkl saving select images from last round
+    :param ph_transform: list of transforms of photometric augmentation
+    :param train_bool: Boolean true if the data loader is for training dataset; to generate
+    class prob and mean image
+    """
+
+    def __init__(self,
+                 root,
+                 image_size,
+                 shape_transforms=None,
+                 photo_transforms=None,
+                 train_bool=False,
+        ):
+        self.root = root
+        self.shape_transforms = shape_transforms
+        self.photo_transforms = photo_transforms
+        self.train_bool = train_bool
+        self.image_size = image_size
+
+        self.train_data_list = glob.glob(self.root+"/images/*.png")
+
+        print("OpenEDS: loading {} images ........".format(len(self.train_data_list)))
+
+        self.all_images = np.empty((len(self.train_data_list), self.image_size[0], self.image_size[1]), dtype=np.float32)
+        self.all_labels = np.empty((len(self.train_data_list), self.image_size[0], self.image_size[1]))
+
+        # fig = plt.figure()
+        for idx in range(len(self.train_data_list)):
+            with Image.open(self.train_data_list[idx]) as f:
+                im = f.convert("L").copy()
+            lb_filename = self.train_data_list[idx].replace("train_pseudo/", "train/").replace("/images/", "/masks/")
+            lb_filename = lb_filename.replace(".png", ".npy")
+            lb = np.load(lb_filename)
+            lb_mask_filename = self.train_data_list[idx].replace("/images/", "/masks/").replace(".png", ".npy")
+            lb_mask = np.load(lb_mask_filename)
+
+            if self.shape_transforms is not None:
+                lb = Image.fromarray(lb)
+                im, lb = self.shape_transforms(im, lb)
+            if self.photo_transforms is not None:
+                im = rescale_image(np.array(im))
+                im = self.photo_transforms(im)
+                im = im.astype(np.float32)
+
+            lb = np.array(lb)
+            lb[lb_mask] = 4
+
+            self.all_images[idx,:] = np.array(im).astype(np.float16)
+            self.all_labels[idx,:] = lb
+
+        if self.train_bool:
+            self.counts = self.__compute_class_probability()
+
+    def __len__(self):
+        return len(self.train_data_list)
+
+    def __getitem__(self, index):
+        im = self.all_images[index]
+        lb = self.all_labels[index]
+        im = im[np.newaxis, :, :] / 255.0
+        return np.concatenate((im, im, im), axis=0), lb
+
+    def __compute_class_probability(self):
+        counts = dict((i, 0) for i in range(NUM_CLASSES))
+        sampleslist = np.arange(self.__len__())
+        for i in sampleslist:
+            img, label = self.__getitem__(i)
+            if label is not -1:
+                for j in range(NUM_CLASSES):
+                    counts[j] += np.sum(label == j)
+        return counts
+
+    def __compute_image_mean(self):
+        sampleslist = np.arange(self.__len__())
+        for i in sampleslist:
+            img, target = self.__getitem__(i)
+            if i == 0:
+                img_mean = img
+            else:
+                img_mean += img
+        return 1.0 * img_mean / self.__len__()
+
+    def get_class_probability(self):
+        values = np.array(list(self.counts.values()))
+        p_values = values / np.sum(values)
+        return torch.Tensor(p_values)
+
+
 class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
     """
     OpenEDS dataset
@@ -102,8 +196,8 @@ class OpenEDSDataset_withLabels(torch.utils.data.Dataset):
                 # plt.show()
 
             self.all_images[idx,:] = np.array(im).astype(np.float16)
-            self.all_labels[idx,:] = np.int64(np.array(lb))
-            #
+            self.all_labels[idx,:] = np.array(lb)
+
             # if idx >= 100:
             #     break
 

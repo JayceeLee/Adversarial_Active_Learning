@@ -120,16 +120,21 @@ def main(args):
     image_confidence = np.empty((traindata.__len__(), 224, 224, 2))
     pred_all = np.empty((traindata.__len__(),4,224,224))
 
-    for i_iter in range(args.total_iterations):
+    with open("dataloaders/eye/trinity_top_200.pkl", "rb") as f:
+        top_200_lists = pickle.load(f)
 
+    for i_iter in range(args.total_iterations):
         if i_iter % 1000 == 0:
             print("Processing {} ..........".format(i_iter))
 
+        if not (traindata.train_data_list[i_iter] in top_200_lists):
+            continue
+
         _, batch = next(trainloader_iter)
 
-        images, _ = batch
+        images, labels = batch
         images = Variable(images).to(args.device)
-        # labels = Variable(labels.long()).to(args.device)
+        labels = Variable(labels.long()).to(args.device)
 
         pred = model_seg(images)
         pred_softmax = F.softmax(pred, dim=1)
@@ -160,7 +165,15 @@ def main(args):
         # ax.set_yticks([])
 
         D_out_mean = D_out.mean()
-        # D_out_mean_map = (D_out > D_out_mean) * 1
+        # labels = labels[0,:,:].detach().cpu().numpy()
+        semi_ignore_mask = (D_out < D_out_mean)
+        # pseudo_gt = labels.copy()
+        # pseudo_gt[semi_ignore_mask] = 4
+        # pseudo_gt = pseudo_gt.astype(np.uint8)
+        filename = traindata.train_data_list[i_iter].replace("/images/", "/masks/")
+        filename = filename.replace("/train/", "/train_pseudo/")
+        filename = filename.replace(".png", ".npy")
+        np.save(filename, semi_ignore_mask)
         # print(D_out_mean_map.shape)
 
         # ax = fig.add_subplot(235)
@@ -172,31 +185,33 @@ def main(args):
         # filename = os.path.join(dst_folder, filename)
         # plt.savefig(filename)
 
-        confidence_map.append(D_out_mean)
-        imagename.append(ntpath.basename(traindata.train_data_list[i_iter]))
+        im_filename = traindata.train_data_list[i_iter].replace("/train/", "/train_pseudo/")
+        os.system("cp %s %s" % (traindata.train_data_list[i_iter], im_filename))
 
-        image_confidence[i_iter,:,:,0] = images[0,0,:,:].detach().cpu().numpy()
-        image_confidence[i_iter,:,:,1] = D_out
-        pred_all[i_iter, ...] = pred_softmax[0,...].detach().cpu().numpy()
 
-        # print(D_out_mean)
+        # ### generate confidence map ###
+        # confidence_map.append(D_out_mean)
+        # imagename.append(ntpath.basename(traindata.train_data_list[i_iter]))
+        # image_confidence[i_iter,:,:,0] = images[0,0,:,:].detach().cpu().numpy()
+        # image_confidence[i_iter,:,:,1] = D_out
+        # pred_all[i_iter, ...] = pred_softmax[0,...].detach().cpu().numpy()
+        # ### generate confidence map ###
 
-    confidence_map = np.array(confidence_map)
-    print(confidence_map.mean(), np.std(confidence_map))
-
-    print("Saving ...............................")
-    filename = args.exp_dir+"/image_confidence_UDA.npy"
-    np.save(filename, image_confidence)
-    filename = args.exp_dir + "/predsoftmax_UDA.npy"
-    np.save(filename, pred_all)
-
-    with open("%s/confidence_map_UDA.pkl" % (args.exp_dir), "wb") as f:
-        pickle.dump([imagename, confidence_map], f)
-
-    fig = plt.figure()
-    x_axis = np.arange(confidence_map.shape[0])
-    plt.scatter(x_axis, confidence_map, s=2)
-    plt.show()
+    # confidence_map = np.array(confidence_map)
+    # print(confidence_map.mean(), np.std(confidence_map))
+    #
+    # print("Saving ...............................")
+    # filename = args.exp_dir+"/image_confidence_UDA.npy"
+    # np.save(filename, image_confidence)
+    # filename = args.exp_dir + "/predsoftmax_UDA.npy"
+    # np.save(filename, pred_all)
+    #
+    # with open("%s/confidence_map_UDA.pkl" % (args.exp_dir), "wb") as f:
+    #     pickle.dump([imagename, confidence_map], f)
+    # fig = plt.figure()
+    # x_axis = np.arange(confidence_map.shape[0])
+    # plt.scatter(x_axis, confidence_map, s=2)
+    # plt.show()
 
 if __name__ == "__main__":
     args = parse_arguments()

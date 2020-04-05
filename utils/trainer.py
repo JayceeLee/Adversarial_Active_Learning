@@ -985,7 +985,7 @@ def run_training_SSDA(
     model_seg,
     model_disc,
     gan_loss,
-    seg_loss_source,
+    seg_loss,
     semi_loss_criterion,
     optimizer_seg,
     optimizer_disc,
@@ -1054,7 +1054,7 @@ def run_training_SSDA(
 
         pred_source = model_seg(images)
         pred_source_softmax = F.softmax(pred_source, dim=1)
-        loss_seg_source = seg_loss_source(pred_source, labels)
+        loss_seg_source = seg_loss(pred_source, labels)
 
         current_loss_seg = loss_seg_source.item()
         loss_seg_source_value += current_loss_seg
@@ -1069,9 +1069,11 @@ def run_training_SSDA(
         images = Variable(images).to(args.device)
         labels = Variable(labels.long()).to(args.device)
 
+        labels[labels==4] = -1
+
         pred_target = model_seg(images)
         pred_softmax_target = F.softmax(pred_target, dim=1)
-        loss_seg_target = seg_loss_source(pred_target, labels)
+        loss_seg_target = seg_loss(pred_target, labels)
 
         current_loss_seg += loss_seg_target.item()
         loss_seg_target_value += loss_seg_target.item()
@@ -1082,7 +1084,7 @@ def run_training_SSDA(
             mean_domain_threshold = get_mean_threshold(D_outs=D_out_semi, device=args.device)
             semi_ignore_mask = (D_out_semi > mean_domain_threshold).squeeze(1)
             semi_gt = torch.argmax(pred_softmax_target.data.cpu(), dim=1)
-            semi_gt[semi_ignore_mask] = 255
+            semi_gt[semi_ignore_mask] = -1
 
             semi_ratio = 1.0 - float(semi_ignore_mask.sum().item()) / float(np.prod(semi_ignore_mask.shape))
             if semi_ratio == 0.0:
@@ -1254,7 +1256,7 @@ def run_training_SSDA(
             source_miou.append(source_miou_eval)
             source_miou_eval = np.max(np.array(source_miou))
 
-    current_epoch = int(args.total_iterations * args.batch_size / args.total_source)
+    current_epoch = int(args.total_iterations * args.batch_size / args.tot_source)
     val_loss_f, val_miou_f = validate_singleD(
         i_iter=1000000000,
         val_loader=val_loader,

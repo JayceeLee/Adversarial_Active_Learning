@@ -5,10 +5,11 @@ import numpy as np
 import pickle
 import itertools
 
-from dataloaders.eye.eyeDataset import OpenEDSDataset_withoutLabels, OpenEDSDataset_withLabels, UnityDataset
+from dataloaders.eye.eyeDataset import OpenEDSDataset_withRegionLabels, OpenEDSDataset_withLabels, UnityDataset
 from dataloaders.eye.photometric_transform import PhotometricTransform, photometric_transform_config
 
 from utils.trainer import run_training_SSDA, run_testing
+from utils.loss import CrossEntropy2d
 from utils.image_pool import ImagePool
 from utils.model_utils import load_models
 from utils.utils import make_logger
@@ -117,10 +118,9 @@ def main(args):
         train_bool=False,
     )
 
-    target_data = OpenEDSDataset_withLabels(
-        root=os.path.join(args.target_root, "train"),
+    target_data = OpenEDSDataset_withRegionLabels(
+        root=os.path.join(args.target_root, "train_pseudo"),
         image_size=args.image_size,
-        data_to_train="dataloaders/eye/trinity_train_200.pkl",
         shape_transforms=transforms_shape_target,
         photo_transforms=photo_transformer,
         train_bool=True,
@@ -143,7 +143,6 @@ def main(args):
         photo_transforms=None,
         train_bool=False,
     )
-    # class_weight_source = 1.0 / source_data.get_class_probability().to(device)
 
     source_loader = torch.utils.data.DataLoader(
         source_data,
@@ -193,9 +192,10 @@ def main(args):
     )
     optimizer_disc.zero_grad()
 
-    seg_loss_source = torch.nn.CrossEntropyLoss().to(device)
+    seg_loss = torch.nn.CrossEntropyLoss(ignore_index=-1).to(device)
+    # seg_loss = CrossEntropy2d().to(device)
     gan_loss = torch.nn.BCEWithLogitsLoss().to(device)
-    semi_loss = torch.nn.CrossEntropyLoss(ignore_index=255)
+    semi_loss = torch.nn.CrossEntropyLoss(ignore_index=-1)
 
     history_true_mask = ImagePool(args.pool_size)
     history_fake_mask = ImagePool(args.pool_size)
@@ -212,7 +212,7 @@ def main(args):
         model_seg=model_seg,
         model_disc=model_disc,
         gan_loss=gan_loss,
-        seg_loss=seg_loss_source,
+        seg_loss=seg_loss,
         semi_loss_criterion=semi_loss,
         optimizer_seg=optimizer_seg,
         optimizer_disc=optimizer_disc,
