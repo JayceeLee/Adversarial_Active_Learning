@@ -70,6 +70,10 @@ def main(args):
     uncertainty_scores = np.load("uncertainty_scores.npy")
     with (open("results/unity_to_trinity_UDA_semi_10/evaluation_trinity_test/confidence_map_UDA.pkl", "rb")) as f:
         adv_scores = pickle.load(f)
+    index = np.argsort(adv_scores[1])[::-1]
+    ascore = np.empty((2, 8916))
+    ascore[0] = index
+    ascore[1] = adv_scores[1][index]
 
     assert args.checkpoint_seg is not None, "Need trained .pth!"
     model_seg = load_models(
@@ -97,12 +101,12 @@ def main(args):
                 if name in self.extracted_layers:
                     return x['x5']
 
-    # exact_list = ["pretrained_net"]
-    # featExactor = FeatureExtractor(model_seg, exact_list)
-    # # a = torch.randn(1, 3, 224, 224)
-    # # a = Variable(a).to(args.device)
-    # # x = myexactor(a)
-    # # print(x)
+    exact_list = ["pretrained_net"]
+    featExactor = FeatureExtractor(model_seg, exact_list)
+    # a = torch.randn(1, 3, 224, 224)
+    # a = Variable(a).to(args.device)
+    # x = myexactor(a)
+    # print(x)
 
     transforms_shape_target = dual_transforms.Compose(
         [
@@ -131,42 +135,50 @@ def main(args):
     args.total_iterations = traindata.__len__() // args.batch_size
 
     model_seg.eval()
-    feature_maps = np.empty((25088, traindata.__len__()))
+    feature_maps = np.empty((traindata.__len__(), 25088))
 
     count = 0
     for i_iter in range(args.total_iterations):
         if i_iter % 1000 == 0:
             print("Processing {} ..........".format(i_iter))
 
-        if uncertainty_scores[1][i_iter] == uncertainty_scores[1].max():
-            print("uncertain", i_iter, traindata.train_data_list[i_iter], uncertainty_scores[1][i_iter], adv_scores[1][i_iter])
-            count += 1
-        if adv_scores[1][i_iter] == adv_scores[1].max():
-            print("adv", i_iter, traindata.train_data_list[i_iter], uncertainty_scores[1][i_iter], adv_scores[1][i_iter])
-            count += 1
-
-        if count==2:
-            break
+        # if uncertainty_scores[1][i_iter] == uncertainty_scores[1].max():
+        #     print("uncertain", i_iter, traindata.train_data_list[i_iter], uncertainty_scores[1][i_iter], adv_scores[1][i_iter])
+        #     count += 1
+        # if adv_scores[1][i_iter] == adv_scores[1].max():
+        #     print("adv", i_iter, traindata.train_data_list[i_iter], uncertainty_scores[1][i_iter], adv_scores[1][i_iter])
+        #     count += 1
+        #
+        # if count==2:
+        #     break
 
         # u_idx = np.where(uncertainty_scores[0]==i_iter)[0]
-        # _, batch = next(trainloader_iter)
-        #
-        # images, labels = batch
-        # images = Variable(images).to(args.device)
-        # # labels = Variable(labels.long()).to(args.device)
-        #
-        # feat = featExactor(images)
-        # feature_maps[:, u_idx] = feat.view(1,-1)[0].detach().cpu().numpy()
+        a_idx = np.where(ascore[0]==i_iter)[0]
+        _, batch = next(trainloader_iter)
+        images, labels = batch
+        images = Variable(images).to(args.device)
+        # labels = Variable(labels.long()).to(args.device)
+
+        feat = featExactor(images)
+        # feature_maps[i_iter] = feat.view(1,-1)[0].detach().cpu().numpy()
+        feature_maps[a_idx] = feat.view(1,-1)[0].detach().cpu().numpy()
 
     # print("Saving feature maps .......................")
-    # np.save("feature_maps_UDA.npy", feature_maps)
+    # np.save("feature_maps_UDA_original_order.npy", feature_maps)
+
+    # print("Saving feature maps .......................")
+    # np.save("feature_maps_UDA_ascore.npy", feature_maps)
+
+    from sklearn.metrics.pairwise import cosine_similarity
+    dist = cosine_similarity(feature_maps)
+
     #
     # A = np.matmul(feature_maps.transpose(), feature_maps)
     # D = A.diagonal()
     # distance_map = np.power(D, 0.5) * A * np.power(D, -0.5)
     #
-    # print("Saving distance maps .......................")
-    # np.save("distance_maps_UDA.npy", distance_map)
+    print("Saving distance maps .......................")
+    np.save("distance_maps_UDA_ascore.npy", dist)
 
 
 if __name__ == "__main__":
