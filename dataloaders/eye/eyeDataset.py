@@ -6,7 +6,7 @@ import glob
 import pickle
 from PIL import Image
 import cv2
-
+import random
 import matplotlib.pyplot as plt
 
 # from .photometric_transform import PhotometricTransform, photometric_transform_config
@@ -21,6 +21,13 @@ NUM_CLASSES = 4
 
 import torch
 import torch.utils.data
+
+seed = 1
+os.environ['PYTHONHASHSEED'] = str(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 
 class OpenEDSDataset_withRegionLabels(torch.utils.data.Dataset):
     """

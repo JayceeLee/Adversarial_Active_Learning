@@ -2,9 +2,17 @@ import torch.nn as nn
 import math
 import torch.utils.model_zoo as model_zoo
 import torch
+import os
+import random
 import numpy as np
 affine_par = True
 
+seed = 1
+os.environ['PYTHONHASHSEED'] = str(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 
 def outS(i):
     i = int(i)

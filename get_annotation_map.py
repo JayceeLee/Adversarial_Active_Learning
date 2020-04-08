@@ -110,26 +110,41 @@ def main(args):
     model_disc.eval()
 
     confidence_map = []
+    confidence_mean_score = []
+    confidence_cnt = []
     imagename = []
+    imageindex = []
 
     dst_folder = os.path.join(args.exp_dir, "visualization")
     if not os.path.isdir(dst_folder):
         os.mkdir(dst_folder)
 
-
     image_confidence = np.empty((traindata.__len__(), 224, 224, 2))
-    pred_all = np.empty((traindata.__len__(),4,224,224))
+    # pred_all = np.empty((traindata.__len__(),4,224,224))
+    # with open("dataloaders/eye/trinity_top_200.pkl", "rb") as f:
+    #     top_200_lists = pickle.load(f)
 
-    with open("dataloaders/eye/trinity_top_200.pkl", "rb") as f:
-        top_200_lists = pickle.load(f)
+    with open("dataloaders/eye/top_1_adv.pkl", "rb") as f:
+        top_1_lists = pickle.load(f)
+
+    with open("dataloaders/eye/top_2_adv.pkl", "rb") as f:
+        top_2_lists = pickle.load(f)
 
     for i_iter in range(args.total_iterations):
         if i_iter % 1000 == 0:
             print("Processing {} ..........".format(i_iter))
 
-        if not (traindata.train_data_list[i_iter] in top_200_lists):
+        # if not (traindata.train_data_list[i_iter] in top_200_lists):
+        #     continue
+
+        # if traindata.train_data_list[i_iter] in top_1_lists:
+        #     continue
+
+        if traindata.train_data_list[i_iter] in top_2_lists:
             continue
 
+        imageindex.append(i_iter)
+        imagename.append(traindata.train_data_list[i_iter])
         _, batch = next(trainloader_iter)
 
         images, labels = batch
@@ -142,7 +157,7 @@ def main(args):
         D_out = torch.sigmoid(D_out)
         D_out = D_out[0,0,:,:].detach().cpu().numpy()
 
-        # pred = np.argmax(pred.detach().cpu().numpy(), axis=1)[0,:,:]
+        pred = np.argmax(pred.detach().cpu().numpy(), axis=1)[0,:,:]
         # fig = plt.figure()
         # ax = fig.add_subplot(231)
         # ax.imshow(images[0,0,:,:].detach().cpu().numpy(), cmap="gray")
@@ -165,16 +180,18 @@ def main(args):
         # ax.set_yticks([])
 
         D_out_mean = D_out.mean()
+        D_out_mean_map = (D_out > D_out_mean) * 1
+
         # labels = labels[0,:,:].detach().cpu().numpy()
-        semi_ignore_mask = (D_out < D_out_mean)
-        # pseudo_gt = labels.copy()
-        # pseudo_gt[semi_ignore_mask] = 4
-        # pseudo_gt = pseudo_gt.astype(np.uint8)
-        filename = traindata.train_data_list[i_iter].replace("/images/", "/masks/")
-        filename = filename.replace("/train/", "/train_pseudo/")
-        filename = filename.replace(".png", ".npy")
-        np.save(filename, semi_ignore_mask)
-        # print(D_out_mean_map.shape)
+        # semi_ignore_mask = (D_out < D_out_mean)
+        # # pseudo_gt = labels.copy()
+        # # pseudo_gt[semi_ignore_mask] = 4
+        # # pseudo_gt = pseudo_gt.astype(np.uint8)
+        # filename = traindata.train_data_list[i_iter].replace("/images/", "/masks/")
+        # filename = filename.replace("/train/", "/train_pseudo/")
+        # filename = filename.replace(".png", ".npy")
+        # np.save(filename, semi_ignore_mask)
+        # # print(D_out_mean_map.shape)
 
         # ax = fig.add_subplot(235)
         # ax.imshow(D_out_mean_map)
@@ -185,18 +202,25 @@ def main(args):
         # filename = os.path.join(dst_folder, filename)
         # plt.savefig(filename)
 
-        im_filename = traindata.train_data_list[i_iter].replace("/train/", "/train_pseudo/")
-        os.system("cp %s %s" % (traindata.train_data_list[i_iter], im_filename))
+        # im_filename = traindata.train_data_list[i_iter].replace("/train/", "/train_pseudo/")
+        # os.system("cp %s %s" % (traindata.train_data_list[i_iter], im_filename))
 
-        # ### generate confidence map ###
+        confidence_mean_score.append(D_out_mean)
+        confidence_cnt.append(D_out_mean_map.sum())
+
+        ### generate confidence map ###
         # confidence_map.append(D_out_mean)
         # imagename.append(ntpath.basename(traindata.train_data_list[i_iter]))
         # image_confidence[i_iter,:,:,0] = images[0,0,:,:].detach().cpu().numpy()
         # image_confidence[i_iter,:,:,1] = D_out
         # pred_all[i_iter, ...] = pred_softmax[0,...].detach().cpu().numpy()
-        # ### generate confidence map ###
+        ### generate confidence map ###
 
+    # with open("%s/confidence_map_top1_adv.pkl" % (args.exp_dir), "wb") as f:
+    #     pickle.dump([imageindex, imagename, confidence_mean_score, confidence_cnt], f)
 
+    with open("%s/confidence_map_top2_adv.pkl" % (args.exp_dir), "wb") as f:
+        pickle.dump([imageindex, imagename, confidence_mean_score, confidence_cnt], f)
 
     # confidence_map = np.array(confidence_map)
     # print(confidence_map.mean(), np.std(confidence_map))
@@ -207,11 +231,18 @@ def main(args):
     # filename = args.exp_dir + "/predsoftmax_UDA.npy"
     # np.save(filename, pred_all)
     #
-    # with open("%s/confidence_map_UDA.pkl" % (args.exp_dir), "wb") as f:
+    # with open("%s/confidence_map_top1_adv.pkl" % (args.exp_dir), "wb") as f:
     #     pickle.dump([imagename, confidence_map], f)
     # fig = plt.figure()
-    # x_axis = np.arange(confidence_map.shape[0])
-    # plt.scatter(x_axis, confidence_map, s=2)
+    # ax = fig.add_subplot(121)
+    # index = np.argsort(confidence_mean_score)[::-1]
+    # x_axis = np.arange(len(confidence_mean_score))
+    # ax.scatter(x_axis, np.array(confidence_mean_score)[index], s=2)
+    # ax.set_title("Mean confidence score")
+    # ax = fig.add_subplot(122)
+    # index = np.argsort(confidence_cnt)[::-1]
+    # ax.imshow(x_axis, np.array(confidence_cnt[index]), s=2)
+    # ax.set_title("Confidence cnt")
     # plt.show()
 
 if __name__ == "__main__":

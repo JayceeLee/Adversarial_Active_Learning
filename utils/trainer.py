@@ -1,5 +1,6 @@
 import os
 import sys
+import random
 
 import numpy as np
 import tqdm
@@ -19,6 +20,13 @@ sys.path.append("%s/.." % file_path)
 from utils.utils import make_D_label, adjust_learning_rate, get_mean_threshold
 from utils.utils import rescale_image, convt_array_to_PIL
 from utils.metrics import Performance_Metrics, compute_mean_iou, evaluate_segmentation
+
+seed = 1
+os.environ['PYTHONHASHSEED'] = str(seed)
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
 
 INPUT_CHANNELS = 3
 NUM_CLASSES = 4
